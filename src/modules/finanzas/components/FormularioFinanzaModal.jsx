@@ -31,8 +31,8 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado }) 
     }, [isOpen]);
 
     const cargarDatosBasicos = async () => {
-        // ADAPTADO: Ahora consultamos la tabla 'leads'
-        const { data: dataClientes } = await supabase.from('leads').select('*').eq('cerrado', false);
+        // ADAPTADO: Ahora consultamos la tabla 'clientes'
+        const { data: dataClientes } = await supabase.from('clientes').select('*').eq('cerrado', false);
         if (dataClientes) setClientes(dataClientes);
 
         const { data: dataPersonal } = await supabase.from('directorio_cuentas').select('*').eq('tipo', 'Personal');

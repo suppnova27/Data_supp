@@ -15,7 +15,7 @@ export default function ClientesCerradosPage() {
         setCargando(true);
         // CAMBIO CLAVE 1: Ahora consultamos la tabla 'leads'
         const { data, error } = await supabase
-            .from('leads')
+            .from('clientes')
             .select('*')
             .eq('cerrado', true)
             .order('fecha_creacion', { ascending: false });
@@ -49,7 +49,7 @@ export default function ClientesCerradosPage() {
     const handleReabrir = async (id, nombre) => {
         if (window.confirm(`¿Deseas reabrir el expediente de ${nombre}? Volverá al Pipeline de Leads Activos.`)) {
             const { error } = await supabase
-                .from('leads') // CAMBIO CLAVE 3: Actualizamos en 'leads'
+                .from('clientes') // CAMBIO CLAVE 3: Actualizamos en 'clientes'
                 .update({
                     cerrado: false,
                     motivo_cierre: null,
@@ -65,7 +65,7 @@ export default function ClientesCerradosPage() {
     // Función para Eliminar Definitivamente
     const handleEliminar = async (id, nombre) => {
         if (window.confirm(`ADVERTENCIA: ¿Eliminar a ${nombre} permanentemente? Se borrarán todos sus registros históricos.`)) {
-            const { error } = await supabase.from('leads').delete().eq('id', id); // CAMBIO CLAVE 4: Borramos de 'leads'
+            const { error } = await supabase.from('clientes').delete().eq('id', id); // CAMBIO CLAVE 4: Borramos de 'clientes'
             if (error) alert("Error al eliminar.");
             else fetchCerrados();
         }
@@ -162,8 +162,8 @@ export default function ClientesCerradosPage() {
                                         <td className="px-6 py-4 text-xs font-semibold">{c.trabajo_solicitado || <span className="italic text-slate-400">Por definir</span>}</td>
                                         <td className="px-6 py-4">
                                             <span className={`px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider ${c.motivo_cierre === 'Venta concretada'
-                                                    ? 'bg-emerald-100 text-emerald-700'
-                                                    : 'bg-rose-100 text-rose-700'
+                                                ? 'bg-emerald-100 text-emerald-700'
+                                                : 'bg-rose-100 text-rose-700'
                                                 }`}>
                                                 {c.motivo_cierre || 'Cerrado'}
                                             </span>

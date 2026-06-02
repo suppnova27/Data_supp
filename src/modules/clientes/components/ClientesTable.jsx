@@ -15,7 +15,7 @@ export default function LeadsTable({ refreshTrigger, onEditar, onCerrar, onRefre
     const fetchLeads = async () => {
         setCargando(true);
         const { data, error } = await supabase
-            .from('leads')
+            .from('clientes') // ¡CORREGIDO AQUÍ!
             .select('*')
             .not('cerrado', 'eq', true);
 
@@ -63,7 +63,7 @@ export default function LeadsTable({ refreshTrigger, onEditar, onCerrar, onRefre
 
     const handleEliminar = async (id, nombre) => {
         if (window.confirm(`¿Estás completamente seguro de eliminar a ${nombre}? Esta acción NO se puede deshacer.`)) {
-            const { error } = await supabase.from('leads').delete().eq('id', id);
+            const { error } = await supabase.from('clientes').delete().eq('id', id); // ESTO YA ESTABA BIEN
             if (error) {
                 alert("Hubo un error al eliminar el lead.");
                 console.error(error);

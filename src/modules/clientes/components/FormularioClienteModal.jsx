@@ -46,10 +46,10 @@ export default function FormularioLeadModal({ isOpen, onClose, onLeadGuardado, l
         let errorAlGuardar;
 
         if (leadAEditar && leadAEditar.id) {
-            const { error } = await supabase.from('leads').update(formData).eq('id', leadAEditar.id);
+            const { error } = await supabase.from('clientes').update(formData).eq('id', leadAEditar.id);
             errorAlGuardar = error;
         } else {
-            const { error } = await supabase.from('leads').insert([formData]);
+            const { error } = await supabase.from('clientes').insert([formData]);
             errorAlGuardar = error;
         }
 
