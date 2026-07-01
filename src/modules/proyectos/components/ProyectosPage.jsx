@@ -11,7 +11,6 @@ export default function ProyectosPage() {
     const [cargando, setCargando] = useState(true);
     const [exportandoImg, setExportandoImg] = useState(false);
 
-    // Estados para filtros
     const [serviciosSeleccionados, setServiciosSeleccionados] = useState([]);
     const [clientesSeleccionados, setClientesSeleccionados] = useState([]);
     const [filtroVista, setFiltroVista] = useState('Ambos');
@@ -22,10 +21,9 @@ export default function ProyectosPage() {
     useEffect(() => {
         const fetchDatosAnalytics = async () => {
             setCargando(true);
-            // ADAPTADO: Ahora consultamos la relación con la tabla 'leads' y extraemos el 'nombre'
             const { data, error } = await supabase
                 .from('finanzas')
-                .select(`*, leads (nombre)`)
+                .select(`*, clientes (nombres)`)
                 .not('cliente_id', 'is', null)
                 .not('servicio', 'is', null);
 
@@ -39,7 +37,6 @@ export default function ProyectosPage() {
         fetchDatosAnalytics();
     }, []);
 
-    // Agrupamos y extraemos listas únicas
     const { todosLosProyectos, listasFiltros } = useMemo(() => {
         const agrupados = {};
         const clientesMap = new Map();
@@ -47,8 +44,7 @@ export default function ProyectosPage() {
 
         finanzas.forEach(mov => {
             const llave = `${mov.cliente_id}-${mov.servicio}`;
-            // ADAPTADO: Leemos directamente de mov.leads.nombre
-            const nombreCliente = mov.leads?.nombre || 'Cliente Sin Nombre';
+            const nombreCliente = mov.clientes?.nombres || 'Cliente Sin Nombre';
 
             clientesMap.set(mov.cliente_id, nombreCliente);
             serviciosSet.add(mov.servicio);
@@ -57,7 +53,6 @@ export default function ProyectosPage() {
                 agrupados[llave] = {
                     id: llave,
                     cliente_id: mov.cliente_id,
-                    // ADAPTADO: Tomamos el primer nombre separando por el primer espacio
                     nombre: `${nombreCliente.split(' ')[0]} - ${mov.servicio}`,
                     cliente: nombreCliente,
                     servicio: mov.servicio,
@@ -75,7 +70,7 @@ export default function ProyectosPage() {
         const proyectos = Object.values(agrupados).map(p => ({
             ...p,
             rentabilidad: p.ingresos - p.gastos,
-            margen: p.ingresos > 0 ? Math.round(((p.ingresos - p.gastos) / p.ingresos) * 100) : 0
+            margin: p.ingresos > 0 ? Math.round(((p.ingresos - p.gastos) / p.ingresos) * 100) : 0
         }));
 
         return {
@@ -87,7 +82,6 @@ export default function ProyectosPage() {
         };
     }, [finanzas]);
 
-    // Selección por defecto al cargar
     useEffect(() => {
         if (listasFiltros.servicios.length > 0 && serviciosSeleccionados.length === 0) {
             setServiciosSeleccionados(listasFiltros.servicios);
@@ -97,7 +91,6 @@ export default function ProyectosPage() {
         }
     }, [listasFiltros]);
 
-    // Filtrado Cruzado Principal
     const datosFiltrados = useMemo(() => {
         return todosLosProyectos.filter(p =>
             serviciosSeleccionados.includes(p.servicio) &&
@@ -105,7 +98,6 @@ export default function ProyectosPage() {
         );
     }, [todosLosProyectos, serviciosSeleccionados, clientesSeleccionados]);
 
-    // Toggles
     const toggleServicio = (servicio) => {
         setServiciosSeleccionados(prev => prev.includes(servicio) ? prev.filter(s => s !== servicio) : [...prev, servicio]);
     };
@@ -113,7 +105,6 @@ export default function ProyectosPage() {
         setClientesSeleccionados(prev => prev.includes(id) ? prev.filter(cId => cId !== id) : [...prev, id]);
     };
 
-    // Métricas
     const metricasGlobales = useMemo(() => {
         let totalIngresos = 0, totalGastos = 0;
         datosFiltrados.forEach(p => { totalIngresos += p.ingresos; totalGastos += p.gastos; });
@@ -163,7 +154,7 @@ export default function ProyectosPage() {
                         <div className="flex flex-col gap-1">
                             {(filtroVista === 'Ambos' || filtroVista === 'Ingresos') && <p className="text-xs text-emerald-600 font-bold flex justify-between gap-4"><span>Ingresos:</span> <span>Bs. {Math.round(data.ingresos).toLocaleString('es-BO')}</span></p>}
                             {(filtroVista === 'Ambos' || filtroVista === 'Gastos') && <p className="text-xs text-red-500 font-bold flex justify-between gap-4"><span>Gastos:</span> <span>Bs. {Math.round(data.gastos).toLocaleString('es-BO')}</span></p>}
-                            {filtroVista === 'Ambos' && <p className="text-xs text-blue-600 font-black mt-1 border-t border-slate-100 pt-2 flex justify-between gap-4"><span>Margen:</span> <span>{data.margen}%</span></p>}
+                            {filtroVista === 'Ambos' && <p className="text-xs text-blue-600 font-black mt-1 border-t border-slate-100 pt-2 flex justify-between gap-4"><span>Margen:</span> <span>{data.margin}%</span></p>}
                         </div>
                     )}
                     {data.value !== undefined && (
@@ -177,41 +168,40 @@ export default function ProyectosPage() {
         return null;
     };
 
+    const CustomXAxisTick = ({ x, y, payload }) => {
+        const partes = payload.value.split(' - ');
+        const cliente = partes[0];
+        const servicio = partes.slice(1).join(' - ');
+        return (
+            <g transform={`translate(${x},${y})`}>
+                <text x={0} y={0} dy={14} textAnchor="middle" fill="#1e293b" fontSize={10} fontWeight="900">{cliente}</text>
+                <text x={0} y={0} dy={26} textAnchor="middle" fill="#64748b" fontSize={9} fontWeight="600">{servicio}</text>
+            </g>
+        );
+    };
+
     if (cargando) return <div className="p-10 text-center text-slate-500 animate-pulse font-bold tracking-widest uppercase">Cargando Analítica...</div>;
 
     return (
         <div className="p-4 md:p-8 max-w-[98%] mx-auto flex flex-col gap-6 animate-in fade-in duration-500 pb-20" ref={graficosRef}>
-
-            {/* HEADER: Título + Controles Superiores */}
             <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 relative overflow-hidden">
                 <div className="absolute top-0 right-0 -translate-y-10 translate-x-1/4 opacity-5 pointer-events-none text-9xl">📈</div>
                 <div className="relative z-10">
                     <h1 className="text-2xl font-black text-slate-800 tracking-tight">Inteligencia de Negocios</h1>
                     <p className="text-sm text-slate-500 mt-1">Descubre qué servicios y clientes generan mayor rentabilidad.</p>
                 </div>
-
                 <div className="relative z-10 flex flex-col sm:flex-row gap-3 w-full lg:w-auto">
-                    <select
-                        value={filtroVista}
-                        onChange={(e) => setFiltroVista(e.target.value)}
-                        className="border-2 border-slate-100 rounded-xl px-4 py-3 bg-slate-50 hover:bg-slate-100 focus:border-blue-500 outline-none font-bold text-slate-700 text-xs transition-colors cursor-pointer shadow-sm"
-                    >
+                    <select value={filtroVista} onChange={(e) => setFiltroVista(e.target.value)} className="border-2 border-slate-100 rounded-xl px-4 py-3 bg-slate-50 hover:bg-slate-100 focus:border-blue-500 outline-none font-bold text-slate-700 text-xs transition-colors cursor-pointer shadow-sm">
                         <option value="Ambos">📊 Vista: Rentabilidad Neta</option>
                         <option value="Ingresos">📈 Vista: Solo Ingresos</option>
                         <option value="Gastos">📉 Vista: Solo Gastos</option>
                     </select>
-
-                    <button
-                        onClick={exportarGraficosComoImagen}
-                        disabled={exportandoImg || datosFiltrados.length === 0}
-                        className="px-6 py-3 bg-slate-800 text-white rounded-xl text-sm font-bold hover:bg-slate-900 shadow-lg shadow-slate-200 transition-all disabled:opacity-50 flex justify-center items-center gap-2"
-                    >
+                    <button onClick={exportarGraficosComoImagen} disabled={exportandoImg || datosFiltrados.length === 0} className="px-6 py-3 bg-slate-800 text-white rounded-xl text-sm font-bold hover:bg-slate-900 shadow-lg shadow-slate-200 transition-all disabled:opacity-50 flex justify-center items-center gap-2">
                         {exportandoImg ? '📸 Capturando...' : '📸 Exportar Reporte'}
                     </button>
                 </div>
             </div>
 
-            {/* BLOQUE 1: KPIs SUPERIORES */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div className={`bg-white p-6 rounded-3xl border transition-opacity ${filtroVista === 'Gastos' ? 'opacity-40' : 'border-emerald-100 shadow-sm border-l-4 border-l-emerald-500'}`}>
                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total Ingresos</p>
@@ -232,57 +222,30 @@ export default function ProyectosPage() {
                 </div>
             </div>
 
-            {/* BLOQUE 2: PANEL DE FILTROS UNIFICADO */}
             <div className="bg-white p-6 md:p-8 rounded-3xl shadow-sm border border-slate-200">
                 <div className="flex items-center gap-2 border-b border-slate-100 pb-4 mb-6">
                     <span className="text-xl">🎛️</span>
                     <h2 className="font-black text-slate-800 tracking-tight">Filtros de Análisis</h2>
                 </div>
-
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8 md:gap-12">
-                    {/* LADO IZQUIERDO: CLIENTES */}
                     <div className="flex flex-col gap-3">
-                        <div className="flex justify-between items-end mb-2">
-                            <label className="text-[11px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2"><span>👥</span> Seleccionar Clientes</label>
-                            <div className="flex gap-2">
-                                <button onClick={() => setClientesSeleccionados(listasFiltros.clientes.map(c => c.id))} className="text-[10px] font-bold text-emerald-600 hover:text-emerald-800 bg-emerald-50 px-3 py-1 rounded-md transition-colors">Todos</button>
-                                <button onClick={() => setClientesSeleccionados([])} className="text-[10px] font-bold text-slate-500 hover:text-slate-700 bg-slate-100 px-3 py-1 rounded-md transition-colors">Ninguno</button>
-                            </div>
-                        </div>
+                        <label className="text-[11px] font-black text-slate-500 uppercase tracking-widest">Seleccionar Clientes</label>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[160px] overflow-y-auto pr-2 custom-scrollbar">
                             {listasFiltros.clientes.map(cliente => (
-                                <label key={cliente.id} className="flex items-center gap-3 cursor-pointer group bg-slate-50 hover:bg-slate-100 p-2 rounded-lg transition-colors border border-slate-100">
-                                    <input
-                                        type="checkbox" checked={clientesSeleccionados.includes(cliente.id)} onChange={() => toggleCliente(cliente.id)}
-                                        className="w-4 h-4 rounded text-emerald-600 border-slate-300 focus:ring-emerald-500 cursor-pointer"
-                                    />
-                                    <span className={`text-xs font-bold transition-colors truncate ${clientesSeleccionados.includes(cliente.id) ? 'text-slate-800' : 'text-slate-400'}`}>
-                                        {cliente.nombre}
-                                    </span>
+                                <label key={cliente.id} className="flex items-center gap-3 cursor-pointer bg-slate-50 p-2 rounded-lg border border-slate-100">
+                                    <input type="checkbox" checked={clientesSeleccionados.includes(cliente.id)} onChange={() => toggleCliente(cliente.id)} className="w-4 h-4 rounded text-emerald-600 border-slate-300 cursor-pointer" />
+                                    <span className="text-xs font-bold text-slate-800 truncate">{cliente.nombre}</span>
                                 </label>
                             ))}
                         </div>
                     </div>
-
-                    {/* LADO DERECHO: SERVICIOS */}
                     <div className="flex flex-col gap-3">
-                        <div className="flex justify-between items-end mb-2">
-                            <label className="text-[11px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2"><span>🛠️</span> Seleccionar Servicios</label>
-                            <div className="flex gap-2">
-                                <button onClick={() => setServiciosSeleccionados(listasFiltros.servicios)} className="text-[10px] font-bold text-blue-600 hover:text-blue-800 bg-blue-50 px-3 py-1 rounded-md transition-colors">Todos</button>
-                                <button onClick={() => setServiciosSeleccionados([])} className="text-[10px] font-bold text-slate-500 hover:text-slate-700 bg-slate-100 px-3 py-1 rounded-md transition-colors">Ninguno</button>
-                            </div>
-                        </div>
+                        <label className="text-[11px] font-black text-slate-500 uppercase tracking-widest">Seleccionar Servicios</label>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[160px] overflow-y-auto pr-2 custom-scrollbar">
                             {listasFiltros.servicios.map(servicio => (
-                                <label key={servicio} className="flex items-center gap-3 cursor-pointer group bg-slate-50 hover:bg-slate-100 p-2 rounded-lg transition-colors border border-slate-100">
-                                    <input
-                                        type="checkbox" checked={serviciosSeleccionados.includes(servicio)} onChange={() => toggleServicio(servicio)}
-                                        className="w-4 h-4 rounded text-blue-600 border-slate-300 focus:ring-blue-500 cursor-pointer"
-                                    />
-                                    <span className={`text-xs font-bold transition-colors truncate ${serviciosSeleccionados.includes(servicio) ? 'text-slate-800' : 'text-slate-400'}`}>
-                                        {servicio}
-                                    </span>
+                                <label key={servicio} className="flex items-center gap-3 cursor-pointer bg-slate-50 p-2 rounded-lg border border-slate-100">
+                                    <input type="checkbox" checked={serviciosSeleccionados.includes(servicio)} onChange={() => toggleServicio(servicio)} className="w-4 h-4 rounded text-blue-600 border-slate-300 cursor-pointer" />
+                                    <span className="text-xs font-bold text-slate-800 truncate">{servicio}</span>
                                 </label>
                             ))}
                         </div>
@@ -290,118 +253,44 @@ export default function ProyectosPage() {
                 </div>
             </div>
 
-            {/* BLOQUE 3: GRÁFICOS */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* Gráfico de Barras */}
                 <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col">
-                    <h3 className="text-xs font-black text-slate-800 mb-6 text-center">
-                        {filtroVista === 'Ambos' ? 'Ingresos vs Gastos (Por Proyecto)' : filtroVista === 'Ingresos' ? 'Ingresos por Proyecto' : 'Gastos por Proyecto'}
-                    </h3>
-
-                    <div className="h-[350px] w-full overflow-x-auto overflow-y-hidden custom-scrollbar">
-                        {datosFiltrados.length === 0 ? (
-                            <div className="h-full flex flex-col items-center justify-center text-slate-400 text-sm font-medium">
-                                <span className="text-4xl mb-2">📊</span>
-                                Selecciona al menos un filtro.
-                            </div>
-                        ) : (
-                            <div style={{ width: `${Math.max(100, datosFiltrados.length * 15)}%`, minWidth: '100%', height: '100%' }}>
-                                <ResponsiveContainer width="100%" height="100%">
-                                    <BarChart data={datosFiltrados} margin={{ top: 20, right: 10, left: -20, bottom: 80 }}>
-                                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                                        <XAxis dataKey="nombre" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#475569', fontWeight: 'bold' }} interval={0} angle={-45} textAnchor="end" />
-                                        <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10 }} />
-                                        <Tooltip content={<CustomTooltip />} cursor={{ fill: '#f8fafc', radius: 8 }} />
-                                        <Legend verticalAlign="top" wrapperStyle={{ paddingBottom: '20px' }} />
-
-                                        {(filtroVista === 'Ambos' || filtroVista === 'Ingresos') && (
-                                            <Bar dataKey="ingresos" name="Ingresos" fill="#10b981" radius={[6, 6, 0, 0]}>
-                                                <LabelList dataKey="ingresos" position="top" style={{ fill: '#059669', fontSize: 10, fontWeight: 'bold' }} formatter={(val) => `Bs.${Math.round(val).toLocaleString('es-BO')}`} />
-                                            </Bar>
-                                        )}
-                                        {(filtroVista === 'Ambos' || filtroVista === 'Gastos') && (
-                                            <Bar dataKey="gastos" name="Gastos" fill="#ef4444" radius={[6, 6, 0, 0]}>
-                                                <LabelList dataKey="gastos" position="top" style={{ fill: '#dc2626', fontSize: 10, fontWeight: 'bold' }} formatter={(val) => `Bs.${Math.round(val).toLocaleString('es-BO')}`} />
-                                            </Bar>
-                                        )}
-                                    </BarChart>
-                                </ResponsiveContainer>
-                            </div>
-                        )}
-                    </div>
-                </div>
-
-                {/* Gráfico de Pastel */}
-                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col">
-                    <h3 className="text-xs font-black text-slate-800 mb-6 text-center">
-                        {filtroVista === 'Ambos' ? 'Distribución de Rentabilidad' : filtroVista === 'Ingresos' ? 'Distribución de Ingresos' : 'Distribución de Gastos'}
-                    </h3>
-
-                    <div className="h-[350px] w-full">
-                        {datosPie.length === 0 ? (
-                            <div className="h-full flex flex-col items-center justify-center text-slate-400 text-sm font-medium">
-                                <span className="text-4xl mb-2">📉</span>
-                                No hay datos positivos para graficar.
-                            </div>
-                        ) : (
+                    <h3 className="text-xs font-black text-slate-800 mb-6 text-center">Gráfico Comparativo</h3>
+                    <div className="h-[350px] w-full overflow-x-auto custom-scrollbar">
+                        <div style={{ width: `${Math.max(100, datosFiltrados.length * 15)}%`, minWidth: '100%', height: '100%' }}>
                             <ResponsiveContainer width="100%" height="100%">
-                                <PieChart margin={{ top: 0, right: 0, bottom: 30, left: 0 }}>
-                                    <Pie
-                                        data={datosPie} cx="50%" cy="50%"
-                                        innerRadius={50} outerRadius={110}
-                                        paddingAngle={4} dataKey="value" stroke="none"
-                                    >
-                                        {datosPie.map((entry, index) => (
-                                            <Cell key={`cell-${index}`} fill={COLORES_PIE[index % COLORES_PIE.length]} />
-                                        ))}
-                                    </Pie>
-                                    <Tooltip content={<CustomTooltip />} />
-                                    <Legend verticalAlign="bottom" iconType="circle" wrapperStyle={{ fontSize: '12px', paddingTop: '10px' }} />
-                                </PieChart>
+                                <BarChart data={datosFiltrados} margin={{ top: 20, right: 10, left: -20, bottom: 40 }}>
+                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                                    <XAxis dataKey="nombre" axisLine={false} tickLine={false} tick={<CustomXAxisTick />} interval={0} />
+                                    <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10 }} />
+                                    <Tooltip content={<CustomTooltip />} cursor={{ fill: '#f8fafc', radius: 8 }} />
+                                    <Legend verticalAlign="top" wrapperStyle={{ paddingBottom: '20px' }} />
+                                    {(filtroVista === 'Ambos' || filtroVista === 'Ingresos') && (
+                                        <Bar dataKey="ingresos" name="Ingresos" fill="#10b981" radius={[6, 6, 0, 0]} />
+                                    )}
+                                    {(filtroVista === 'Ambos' || filtroVista === 'Gastos') && (
+                                        <Bar dataKey="gastos" name="Gastos" fill="#ef4444" radius={[6, 6, 0, 0]} />
+                                    )}
+                                </BarChart>
                             </ResponsiveContainer>
-                        )}
+                        </div>
+                    </div>
+                </div>
+                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col">
+                    <h3 className="text-xs font-black text-slate-800 mb-6 text-center">Distribución</h3>
+                    <div className="h-[350px] w-full">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <PieChart margin={{ top: 0, right: 0, bottom: 30, left: 0 }}>
+                                <Pie data={datosPie} cx="50%" cy="50%" innerRadius={50} outerRadius={110} paddingAngle={4} dataKey="value" stroke="none">
+                                    {datosPie.map((entry, index) => <Cell key={`cell-${index}`} fill={COLORES_PIE[index % COLORES_PIE.length]} />)}
+                                </Pie>
+                                <Tooltip content={<CustomTooltip />} />
+                                <Legend verticalAlign="bottom" iconType="circle" />
+                            </PieChart>
+                        </ResponsiveContainer>
                     </div>
                 </div>
             </div>
-
-            {/* BLOQUE 4: TABLA DE DESGLOSE */}
-            <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden mt-2">
-                <div className="p-5 border-b border-slate-100 bg-slate-50 flex items-center gap-2">
-                    <span className="text-lg">📋</span>
-                    <h3 className="text-xs font-black text-slate-700 uppercase tracking-widest">Desglose Numérico</h3>
-                </div>
-                <div className="overflow-x-auto">
-                    <table className="w-full text-left text-sm text-slate-600 min-w-[600px]">
-                        <thead className="bg-white border-b border-slate-100 uppercase text-[10px] font-black text-slate-400">
-                            <tr>
-                                <th className="px-6 py-4">Proyecto (Cliente + Servicio)</th>
-                                <th className="px-6 py-4 text-center">Ingresos</th>
-                                <th className="px-6 py-4 text-center">Gastos</th>
-                                <th className="px-6 py-4 text-center">Margen</th>
-                                <th className="px-6 py-4 text-right text-blue-600">Rentabilidad Neta</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-50">
-                            {datosFiltrados.length === 0 ? (
-                                <tr><td colSpan="5" className="p-10 text-center text-slate-400 font-medium">Ajusta los filtros para ver resultados.</td></tr>
-                            ) : (
-                                datosFiltrados.map((p) => (
-                                    <tr key={p.id} className="hover:bg-blue-50/50 transition-colors">
-                                        <td className="px-6 py-4 font-black text-slate-800">{p.nombre}</td>
-                                        <td className="px-6 py-4 text-center font-bold text-emerald-600">Bs. {Math.round(p.ingresos).toLocaleString('es-BO')}</td>
-                                        <td className="px-6 py-4 text-center font-bold text-red-500">Bs. {Math.round(p.gastos).toLocaleString('es-BO')}</td>
-                                        <td className="px-6 py-4 text-center font-black text-slate-400">
-                                            <span className="bg-slate-100 px-2 py-1 rounded-md">{p.margen}%</span>
-                                        </td>
-                                        <td className="px-6 py-4 text-right font-black text-blue-600 text-base">Bs. {Math.round(p.rentabilidad).toLocaleString('es-BO')}</td>
-                                    </tr>
-                                ))
-                            )}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-
         </div>
     );
 }

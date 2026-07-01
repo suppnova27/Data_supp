@@ -6,14 +6,10 @@ import {
 } from 'recharts';
 
 export default function DashboardPage() {
-    const [datos, setDatos] = useState({
-        clientes: [],
-        finanzas: [],
-        inventario: []
-    });
+    const [datos, setDatos] = useState({ clientes: [], finanzas: [], inventario: [] });
     const [cargando, setCargando] = useState(true);
 
-    const COLORES_PIE = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4'];
+    const COLORES_PIE = ['#0055af', '#ffdd1c', '#10b981', '#f59e0b', '#8b5cf6', '#06b6d4'];
 
     useEffect(() => {
         const cargarTodo = async () => {
@@ -60,7 +56,6 @@ export default function DashboardPage() {
     const flujoDeCaja = useMemo(() => {
         const meses = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
         const dataMeses = meses.map(m => ({ nombre: m, ingresos: 0, gastos: 0 }));
-
         const añoActual = new Date().getFullYear();
 
         datos.finanzas.forEach(f => {
@@ -85,94 +80,117 @@ export default function DashboardPage() {
     }, [datos.clientes]);
 
     const alertasStock = useMemo(() => {
-        return datos.inventario.filter(item => item.cantidad <= item.stock_minimo);
+        return datos.inventario.filter(item => item.cantidad <= (item.stock_minimo || 0));
     }, [datos.inventario]);
 
     const movimientosRecientes = useMemo(() => {
         return datos.finanzas.slice(0, 5);
     }, [datos.finanzas]);
 
-    if (cargando) return <div className="p-10 text-center text-slate-500 animate-pulse">Sincronizando base de datos central...</div>;
+    if (cargando) return <div className="p-10 text-center text-[#0055af] font-black tracking-widest uppercase animate-pulse">Sincronizando Módulos...</div>;
 
     return (
-        <div className="p-4 md:p-8 max-w-[98%] mx-auto flex flex-col gap-6 animate-in fade-in duration-500 pb-20">
+        <div className="p-4 md:p-8 max-w-[99%] mx-auto flex flex-col gap-6 animate-in fade-in duration-500 pb-20">
 
-            <div className="bg-gradient-to-r from-slate-900 to-blue-900 rounded-2xl p-8 text-white shadow-lg relative overflow-hidden">
-                <div className="relative z-10">
-                    <h1 className="text-3xl font-black tracking-tight mb-2">Resumen Ejecutivo</h1>
-                    <p className="text-blue-200 font-medium max-w-xl">
-                        Un vistazo rápido a los indicadores clave de rendimiento.
-                    </p>
+            {/* BANNER EJECUTIVO */}
+            <div className="bg-gradient-to-r from-[#003d80] to-[#0055af] rounded-3xl p-8 md:p-10 text-white shadow-xl shadow-[#0055af]/20 relative overflow-hidden">
+                <div className="absolute -left-20 -bottom-20 w-64 h-64 bg-[#ffdd1c] opacity-20 rounded-full blur-3xl"></div>
+                <div className="relative z-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                    <div>
+                        <h1 className="text-3xl md:text-4xl font-black tracking-tight mb-2 text-white">Resumen Ejecutivo</h1>
+                        <p className="text-blue-200 font-medium max-w-xl text-sm md:text-base">
+                            Monitoreo en tiempo real de operaciones, finanzas e inventario.
+                        </p>
+                    </div>
+                    <div className="bg-white/10 backdrop-blur-md border border-white/20 px-6 py-3 rounded-full flex items-center gap-3 shadow-lg">
+                        <span className="w-3 h-3 bg-emerald-400 rounded-full animate-pulse"></span>
+                        <span className="font-bold text-sm tracking-widest uppercase">Sistema En Línea</span>
+                    </div>
                 </div>
-                <div className="absolute top-0 right-0 -translate-y-12 translate-x-1/3 opacity-10 pointer-events-none">
+                <div className="absolute top-0 right-0 -translate-y-12 translate-x-1/4 opacity-10 pointer-events-none">
                     <svg width="400" height="400" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" /></svg>
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                <div className="bg-white p-5 rounded-xl border border-slate-100 shadow-sm flex flex-col justify-center">
-                    <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Flujo de Caja Neto</p>
-                    <p className={`text-3xl font-black mt-1 ${kpis.neto >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+            {/* KPIs PRINCIPALES */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm hover:shadow-lg hover:-translate-y-1 transition-all duration-300 flex flex-col justify-center relative overflow-hidden group">
+                    <div className="absolute right-0 top-0 w-2 h-full bg-emerald-500 group-hover:w-3 transition-all"></div>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Flujo de Caja Neto</p>
+                    <p className={`text-3xl font-black mt-2 ${kpis.neto >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
                         Bs. {Math.round(kpis.neto).toLocaleString('es-BO')}
                     </p>
-                    <p className="text-[10px] text-slate-400 mt-2 font-medium">Margen Global: {kpis.margen}%</p>
+                    <div className="mt-3 bg-slate-50 px-3 py-1.5 rounded-lg w-max border border-slate-100">
+                        <p className="text-[10px] text-slate-500 font-black uppercase tracking-wider">Margen: <span className="text-[#0055af]">{kpis.margen}%</span></p>
+                    </div>
                 </div>
-                <div className="bg-white p-5 rounded-xl border border-slate-100 shadow-sm flex flex-col justify-center">
-                    <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Ingresos Totales</p>
-                    <p className="text-2xl font-black text-slate-800 mt-1">Bs. {Math.round(kpis.ingresos).toLocaleString('es-BO')}</p>
+
+                <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm hover:shadow-lg hover:-translate-y-1 transition-all duration-300 flex flex-col justify-center relative overflow-hidden group">
+                    <div className="absolute right-0 top-0 w-2 h-full bg-[#0055af] group-hover:w-3 transition-all"></div>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Ingresos Totales</p>
+                    <p className="text-3xl font-black text-slate-800 mt-2">Bs. {Math.round(kpis.ingresos).toLocaleString('es-BO')}</p>
                 </div>
-                <div className="bg-white p-5 rounded-xl border border-slate-100 shadow-sm flex flex-col justify-center">
-                    <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Proyectos Cerrados</p>
-                    <p className="text-3xl font-black text-blue-600 mt-1">{kpis.ventasConcretadas}</p>
-                    <p className="text-[10px] text-slate-400 mt-2 font-medium">Ventas exitosas históricas</p>
+
+                <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm hover:shadow-lg hover:-translate-y-1 transition-all duration-300 flex flex-col justify-center relative overflow-hidden group">
+                    <div className="absolute right-0 top-0 w-2 h-full bg-[#ffdd1c] group-hover:w-3 transition-all"></div>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Ventas Exitosas</p>
+                    <p className="text-3xl font-black text-[#0055af] mt-2">{kpis.ventasConcretadas}</p>
+                    <p className="text-[10px] text-slate-400 mt-3 font-bold uppercase tracking-widest">Histórico Acumulado</p>
                 </div>
-                <div className="bg-white p-5 rounded-xl border border-slate-100 shadow-sm flex flex-col justify-center">
-                    <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Leads Activos</p>
-                    <p className="text-3xl font-black text-amber-500 mt-1">{kpis.clientesActivos}</p>
-                    <p className="text-[10px] text-slate-400 mt-2 font-medium">En proceso de negociación</p>
+
+                <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm hover:shadow-lg hover:-translate-y-1 transition-all duration-300 flex flex-col justify-center relative overflow-hidden group">
+                    <div className="absolute right-0 top-0 w-2 h-full bg-amber-500 group-hover:w-3 transition-all"></div>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Leads Activos</p>
+                    <p className="text-3xl font-black text-amber-500 mt-2">{kpis.clientesActivos}</p>
+                    <p className="text-[10px] text-slate-400 mt-3 font-bold uppercase tracking-widest">En Negociación</p>
                 </div>
             </div>
 
+            {/* SECCIÓN GRÁFICOS */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <div className="lg:col-span-2 bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex flex-col">
-                    <h3 className="text-sm font-bold text-slate-700 uppercase mb-6 flex items-center gap-2">
-                        <span>📈</span> Rendimiento Financiero ({new Date().getFullYear()})
+
+                {/* GRÁFICO DE LÍNEAS */}
+                <div className="lg:col-span-2 bg-white p-6 md:p-8 rounded-3xl border border-slate-100 shadow-sm flex flex-col min-w-0 overflow-hidden">
+                    <h3 className="text-xs font-black text-[#0055af] uppercase tracking-widest mb-6 flex items-center gap-2">
+                        <span className="text-lg">📈</span> Rendimiento Financiero ({new Date().getFullYear()})
                     </h3>
-                    <div className="flex-1 min-h-[300px] w-full">
-                        <ResponsiveContainer width="100%" height="100%">
+
+                    <div className="w-full h-[300px] min-w-0"> {/* 👈 min-w-0 añadido */}
+                        <ResponsiveContainer width="100%" height="100%" minWidth={0}> {/* 👈 minWidth={0} añadido */}
                             <LineChart data={flujoDeCaja} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
                                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                                <XAxis dataKey="nombre" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} />
-                                <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} />
+                                <XAxis dataKey="nombre" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#64748b', fontWeight: 'bold' }} />
+                                <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#64748b', fontWeight: 'bold' }} />
                                 <Tooltip
-                                    contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                                    contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', fontWeight: 'bold' }}
                                     formatter={(value) => `Bs. ${Math.round(value).toLocaleString('es-BO')}`}
                                 />
-                                <Legend verticalAlign="top" wrapperStyle={{ paddingBottom: '20px' }} />
-                                <Line type="monotone" dataKey="ingresos" name="Ingresos" stroke="#10b981" strokeWidth={3} dot={{ r: 4, strokeWidth: 2 }} activeDot={{ r: 6 }} />
-                                <Line type="monotone" dataKey="gastos" name="Gastos" stroke="#ef4444" strokeWidth={3} dot={{ r: 4, strokeWidth: 2 }} activeDot={{ r: 6 }} />
+                                <Legend verticalAlign="top" wrapperStyle={{ paddingBottom: '20px', fontSize: '12px', fontWeight: 'bold' }} />
+                                <Line type="monotone" dataKey="ingresos" name="Ingresos" stroke="#10b981" strokeWidth={4} dot={{ r: 4 }} activeDot={{ r: 6 }} />
+                                <Line type="monotone" dataKey="gastos" name="Gastos" stroke="#ef4444" strokeWidth={4} dot={{ r: 4 }} activeDot={{ r: 6 }} />
                             </LineChart>
                         </ResponsiveContainer>
                     </div>
                 </div>
 
-                <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex flex-col">
-                    <h3 className="text-sm font-bold text-slate-700 uppercase mb-4 flex items-center gap-2">
-                        <span>🎯</span> Embudo de Ventas (Activos)
+                {/* GRÁFICO CIRCULAR */}
+                <div className="bg-white p-6 md:p-8 rounded-3xl border border-slate-100 shadow-sm flex flex-col min-w-0 overflow-hidden">
+                    <h3 className="text-xs font-black text-[#0055af] uppercase tracking-widest mb-4 flex items-center gap-2">
+                        <span className="text-lg">🎯</span> Embudo de Ventas
                     </h3>
-                    <div className="flex-1 min-h-[250px] w-full">
+                    <div className="w-full h-[250px] flex justify-center mt-2 min-w-0"> {/* 👈 min-w-0 añadido */}
                         {embudoClientes.length === 0 ? (
-                            <div className="flex h-full items-center justify-center text-sm text-slate-400 italic">No hay clientes activos.</div>
+                            <div className="flex h-full w-full items-center justify-center text-sm text-slate-400 font-bold italic">No hay clientes activos.</div>
                         ) : (
-                            <ResponsiveContainer width="100%" height="100%">
+                            <ResponsiveContainer width="100%" height="100%" minWidth={0}> {/* 👈 key eliminado, minWidth añadido */}
                                 <PieChart>
-                                    <Pie data={embudoClientes} cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value">
+                                    <Pie data={embudoClientes} cx="50%" cy="50%" innerRadius={70} outerRadius={90} paddingAngle={5} dataKey="value">
                                         {embudoClientes.map((entry, index) => (
                                             <Cell key={`cell-${index}`} fill={COLORES_PIE[index % COLORES_PIE.length]} stroke="none" />
                                         ))}
                                     </Pie>
-                                    <Tooltip formatter={(value) => `${value} clientes`} />
-                                    <Legend verticalAlign="bottom" iconType="circle" wrapperStyle={{ fontSize: '11px' }} />
+                                    <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', fontWeight: 'bold' }} formatter={(value) => `${value} prospectos`} />
+                                    <Legend verticalAlign="bottom" iconType="circle" wrapperStyle={{ fontSize: '11px', fontWeight: 'bold' }} />
                                 </PieChart>
                             </ResponsiveContainer>
                         )}
@@ -180,26 +198,40 @@ export default function DashboardPage() {
                 </div>
             </div>
 
+            {/* SECCIÓN ALERTAS Y ÚLTIMOS MOVIMIENTOS */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden flex flex-col">
-                    <div className="p-4 border-b border-slate-100 bg-red-50/50 flex justify-between items-center">
-                        <h3 className="text-sm font-bold text-red-700 uppercase flex items-center gap-2"><span>⚠️</span> Alertas de Inventario</h3>
-                        <span className="px-2 py-1 bg-red-100 text-red-700 rounded-full text-[10px] font-black">{alertasStock.length} Insumos críticos</span>
+
+                {/* WIDGET DE ALERTA DE INVENTARIO */}
+                <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden flex flex-col hover:shadow-md transition-shadow">
+                    <div className="p-5 border-b border-slate-100 bg-rose-50 flex justify-between items-center">
+                        <h3 className="text-xs font-black text-rose-700 uppercase tracking-widest flex items-center gap-2">
+                            <span className="text-base animate-bounce">⚠️</span> Alertas de Inventario
+                        </h3>
+                        <span className="px-3 py-1 bg-rose-600 text-white rounded-full text-[10px] font-black uppercase tracking-widest shadow-md shadow-rose-600/30">
+                            {alertasStock.length} Críticos
+                        </span>
                     </div>
-                    <div className="p-2 flex-1 overflow-y-auto max-h-[300px] custom-scrollbar">
+                    <div className="p-3 flex-1 overflow-y-auto max-h-[320px] custom-scrollbar">
                         {alertasStock.length === 0 ? (
-                            <div className="p-6 text-center text-sm text-emerald-600 font-medium">Todo el almacén está abastecido. ✅</div>
+                            <div className="p-10 flex flex-col items-center justify-center text-center gap-2">
+                                <span className="text-4xl">✅</span>
+                                <p className="text-sm text-emerald-600 font-black uppercase tracking-widest mt-2">Almacén Abastecido</p>
+                                <p className="text-xs text-slate-400 font-medium">Ningún producto está por debajo de su límite.</p>
+                            </div>
                         ) : (
-                            <div className="flex flex-col gap-1">
+                            <div className="flex flex-col gap-2">
                                 {alertasStock.map(item => (
-                                    <div key={item.id} className="flex justify-between items-center p-3 hover:bg-slate-50 rounded-lg transition-colors">
-                                        <div>
-                                            <p className="font-bold text-slate-800 text-sm">{item.nombre}</p>
-                                            <p className="text-[10px] text-slate-500">Stock mínimo requerido: {item.stock_minimo}</p>
+                                    <div key={item.id} className="flex justify-between items-center p-4 bg-white hover:bg-rose-50 rounded-2xl border border-slate-100 hover:border-rose-200 transition-all group">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-10 h-10 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center font-black text-lg group-hover:scale-110 transition-transform">!</div>
+                                            <div>
+                                                <p className="font-black text-slate-800 text-sm group-hover:text-rose-700 transition-colors">{item.nombre}</p>
+                                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">Límite mínimo requerido: {item.stock_minimo}</p>
+                                            </div>
                                         </div>
-                                        <div className="text-right">
-                                            <p className="font-black text-red-600 text-lg leading-none">{item.cantidad}</p>
-                                            <p className="text-[9px] text-slate-400 uppercase">{item.unidad_medida}</p>
+                                        <div className="text-right bg-rose-50 px-4 py-2 rounded-xl border border-rose-100">
+                                            <p className="font-black text-rose-600 text-xl leading-none">{item.cantidad}</p>
+                                            <p className="text-[9px] font-black text-rose-400 uppercase tracking-widest mt-1">{item.unidad_medida}</p>
                                         </div>
                                     </div>
                                 ))}
@@ -208,25 +240,34 @@ export default function DashboardPage() {
                     </div>
                 </div>
 
-                <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden flex flex-col">
-                    <div className="p-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
-                        <h3 className="text-sm font-bold text-slate-700 uppercase flex items-center gap-2"><span>💸</span> Últimos Movimientos</h3>
+                {/* WIDGET ÚLTIMOS MOVIMIENTOS FINANCIEROS */}
+                <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden flex flex-col hover:shadow-md transition-shadow">
+                    <div className="p-5 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+                        <h3 className="text-xs font-black text-[#0055af] uppercase tracking-widest flex items-center gap-2">
+                            <span className="text-base">💸</span> Últimos Movimientos
+                        </h3>
                     </div>
-                    <div className="p-2 flex-1 overflow-y-auto max-h-[300px] custom-scrollbar">
+                    <div className="p-3 flex-1 overflow-y-auto max-h-[320px] custom-scrollbar">
                         {movimientosRecientes.length === 0 ? (
-                            <div className="p-6 text-center text-sm text-slate-400">No hay movimientos registrados.</div>
+                            <div className="p-10 flex flex-col items-center justify-center text-center gap-2 text-slate-400">
+                                <span className="text-3xl">📭</span>
+                                <p className="text-xs font-black uppercase tracking-widest mt-2">Sin Movimientos</p>
+                            </div>
                         ) : (
-                            <div className="flex flex-col gap-1">
+                            <div className="flex flex-col gap-2">
                                 {movimientosRecientes.map(mov => (
-                                    <div key={mov.id} className="flex justify-between items-center p-3 hover:bg-slate-50 rounded-lg transition-colors border-b border-slate-50 last:border-0">
-                                        <div className="flex items-center gap-3">
-                                            <div className={`w-2 h-8 rounded-full ${mov.tipo === 'Ingreso' ? 'bg-emerald-400' : 'bg-red-400'}`}></div>
+                                    <div key={mov.id} className="flex justify-between items-center p-4 hover:bg-slate-50 rounded-2xl border border-slate-50 hover:border-slate-100 transition-all">
+                                        <div className="flex items-center gap-4">
+                                            <div className={`w-2 h-10 rounded-full shadow-sm ${mov.tipo === 'Ingreso' ? 'bg-emerald-400 shadow-emerald-400/50' : 'bg-rose-400 shadow-rose-400/50'}`}></div>
                                             <div>
-                                                <p className="font-bold text-slate-800 text-sm truncate max-w-[200px]">{mov.concepto}</p>
-                                                <p className="text-[10px] text-slate-400">{new Date(mov.fecha_registro).toLocaleDateString('es-BO')} • {mov.categoria}</p>
+                                                <p className="font-black text-slate-800 text-sm truncate max-w-[200px]">{mov.concepto}</p>
+                                                <div className="flex gap-2 mt-1">
+                                                    <span className="text-[9px] font-black text-slate-400 bg-slate-100 px-2 py-0.5 rounded-md uppercase">{new Date(mov.fecha_registro).toLocaleDateString('es-BO')}</span>
+                                                    <span className="text-[9px] font-black text-[#0055af] bg-[#0055af]/10 px-2 py-0.5 rounded-md uppercase truncate max-w-[100px]">{mov.categoria || 'General'}</span>
+                                                </div>
                                             </div>
                                         </div>
-                                        <div className={`text-right font-black ${mov.tipo === 'Ingreso' ? 'text-emerald-600' : 'text-red-600'}`}>
+                                        <div className={`text-right font-black text-lg ${mov.tipo === 'Ingreso' ? 'text-emerald-600' : 'text-rose-600'}`}>
                                             {mov.tipo === 'Ingreso' ? '+' : '-'}Bs. {Math.round(Number(mov.monto)).toLocaleString('es-BO')}
                                         </div>
                                     </div>

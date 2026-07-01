@@ -1,10 +1,14 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../../../lib/supabase';
 
+const SERVICIOS_REALES = ['Limpieza Rutinaria', 'Limpieza Profunda', 'Limpieza Post Obra', 'Lavado de Tapicería', 'Servicio Corporativo'];
+
 export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado }) {
     const [guardando, setGuardando] = useState(false);
     const [clientes, setClientes] = useState([]);
     const [personal, setPersonal] = useState([]);
+    const [cuentas, setCuentas] = useState([]);
+    const [productos, setProductos] = useState([]);
 
     const [formData, setFormData] = useState({
         tipo: 'Gasto',
@@ -12,57 +16,77 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado }) 
         concepto: '',
         monto: '',
         cliente_id: '',
-        servicio: '',
+        servicio: SERVICIOS_REALES[0],
         banco: 'Efectivo',
         numero_cuenta: '',
         titular: '',
-        id_operacion: ''
+        cuenta_id: '',
+        id_operacion: '' // 👈 Nuevo campo
     });
+
+    const [consumo, setConsumo] = useState({ inventario_id: '', cantidad: 0 });
 
     useEffect(() => {
         if (isOpen) {
             cargarDatosBasicos();
             setFormData({
-                tipo: 'Gasto', categoria: '', concepto: '', monto: '',
-                cliente_id: '', servicio: '', banco: 'Efectivo',
-                numero_cuenta: '', titular: '', id_operacion: ''
+                tipo: 'Gasto',
+                categoria: '',
+                concepto: '',
+                monto: '',
+                cliente_id: '',
+                servicio: SERVICIOS_REALES[0],
+                banco: 'Efectivo',
+                numero_cuenta: '',
+                titular: '',
+                cuenta_id: '',
+                id_operacion: ''
             });
+            setConsumo({ inventario_id: '', cantidad: 0 });
         }
     }, [isOpen]);
 
     const cargarDatosBasicos = async () => {
-        // ADAPTADO: Ahora consultamos la tabla 'clientes'
-        const { data: dataClientes } = await supabase.from('clientes').select('*').eq('cerrado', false);
+        const { data: dataClientes } = await supabase.from('clientes').select('id, nombres').eq('cerrado', false);
         if (dataClientes) setClientes(dataClientes);
-
         const { data: dataPersonal } = await supabase.from('directorio_cuentas').select('*').eq('tipo', 'Personal');
         if (dataPersonal) setPersonal(dataPersonal);
+        // 👇 Ahora incluye numero_cuenta y titular
+        const { data: dataCuentas } = await supabase.from('directorio_cuentas').select('id, alias, banco, numero_cuenta, titular').eq('tipo', 'Propia');
+        if (dataCuentas) setCuentas(dataCuentas);
+        const { data: dataInv } = await supabase.from('inventario').select('id, nombre, cantidad, unidad_medida');
+        if (dataInv) setProductos(dataInv);
     };
 
-    const handleSeleccionarEmpleado = (e) => {
-        const idEmpleado = e.target.value;
-        const empleado = personal.find(p => p.id === idEmpleado);
-
-        if (empleado) {
+    // 👇 Autocompletado inteligente: ahora con todos los datos bancarios
+    const handleSeleccionarCuenta = (id) => {
+        const ctaSeleccionada = cuentas.find(c => c.id === id);
+        if (ctaSeleccionada) {
             setFormData({
                 ...formData,
-                servicio: `Sueldo: ${empleado.titular}`,
-                banco: empleado.banco || 'Efectivo',
-                numero_cuenta: empleado.numero_cuenta || '',
-                titular: empleado.titular || ''
+                cuenta_id: id,
+                banco: ctaSeleccionada.banco,
+                numero_cuenta: ctaSeleccionada.numero_cuenta || '',
+                titular: ctaSeleccionada.titular || ''
             });
         } else {
-            setFormData({ ...formData, servicio: '', banco: 'Efectivo', numero_cuenta: '', titular: '' });
+            setFormData({
+                ...formData,
+                cuenta_id: '',
+                banco: 'Efectivo',
+                numero_cuenta: '',
+                titular: ''
+            });
         }
     };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
         setGuardando(true);
-
         const datosParaSupabase = {
             ...formData,
-            monto: parseFloat(formData.monto) // Aseguramos que sea número
+            monto: parseFloat(formData.monto),
+            cuenta_id: formData.cuenta_id || null
         };
 
         if (datosParaSupabase.cliente_id === 'pago-personal') {
@@ -72,16 +96,30 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado }) 
             datosParaSupabase.cliente_id = null;
         }
 
-        const { error } = await supabase.from('finanzas').insert([datosParaSupabase]);
+        const { data: nuevaFinanza, error: errFinanza } = await supabase
+            .from('finanzas')
+            .insert([datosParaSupabase])
+            .select()
+            .single();
 
+        if (!errFinanza && formData.tipo === 'Gasto' && consumo.inventario_id) {
+            const producto = productos.find(p => p.id === consumo.inventario_id);
+            if (producto) {
+                await supabase.from('consumo_inventario').insert({
+                    finanza_id: nuevaFinanza.id,
+                    inventario_id: consumo.inventario_id,
+                    cantidad_usada: consumo.cantidad
+                });
+                await supabase
+                    .from('inventario')
+                    .update({ cantidad: producto.cantidad - consumo.cantidad })
+                    .eq('id', consumo.inventario_id);
+            }
+        }
         setGuardando(false);
-
-        if (!error) {
+        if (!errFinanza) {
             onGuardado();
             onClose();
-        } else {
-            alert("Error al guardar el movimiento.");
-            console.error(error);
         }
     };
 
@@ -89,158 +127,179 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado }) 
 
     return (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
-            <div className="bg-white rounded-3xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="bg-white rounded-3xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] border-t-4 border-t-[#ffdd1c]">
 
-                <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-                    <h2 className="text-xl font-black text-slate-800 flex items-center gap-2">
-                        <span>💸</span> Registrar Movimiento
-                    </h2>
-                    <button onClick={onClose} className="w-8 h-8 rounded-full bg-slate-200 hover:bg-red-100 text-slate-500 hover:text-red-600 flex items-center justify-center font-bold transition-colors">
+                {/* CABECERA DEL MODAL */}
+                <div className="p-6 border-b bg-white flex justify-between items-center relative overflow-hidden">
+                    <div className="absolute -left-10 -top-10 w-32 h-32 bg-[#0055af] opacity-5 rounded-full blur-2xl"></div>
+                    <h2 className="text-xl font-black text-[#0055af] flex items-center gap-2 relative z-10">💸 Registrar Movimiento</h2>
+                    <button onClick={onClose} className="relative z-10 w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-rose-100 hover:text-rose-600 font-bold transition-colors">
                         &times;
                     </button>
                 </div>
 
                 <div className="p-6 overflow-y-auto custom-scrollbar">
-                    <form id="form-finanzas" onSubmit={handleSubmit} className="flex flex-col gap-6">
-
+                    <form id="form-finanzas" onSubmit={handleSubmit} className="flex flex-col gap-5">
+                        {/* Tipo y Monto */}
                         <div className="grid grid-cols-2 gap-4">
+                            <select required value={formData.tipo} onChange={e => setFormData({ ...formData, tipo: e.target.value })} className="border-2 border-slate-200 rounded-xl px-4 py-3 font-black text-slate-700 outline-none focus:border-[#0055af]">
+                                <option value="Ingreso">📈 INGRESO</option>
+                                <option value="Gasto">📉 GASTO</option>
+                            </select>
+                            <input type="number" step="0.01" required value={formData.monto} onChange={e => setFormData({ ...formData, monto: e.target.value })} className="border-2 border-slate-200 rounded-xl px-4 py-3 font-black text-lg outline-none focus:border-[#0055af]" placeholder="Monto (Bs.)" />
+                        </div>
+
+                        {/* NUEVA SECCIÓN: Cuenta bancaria + ID Operación */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div className="flex flex-col gap-1.5">
-                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Tipo de Movimiento</label>
+                                <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest pl-1">Cuenta Bancaria</label>
                                 <select
                                     required
-                                    value={formData.tipo}
-                                    onChange={e => setFormData({ ...formData, tipo: e.target.value })}
-                                    className={`border-2 rounded-xl px-4 py-3 outline-none font-black transition-colors cursor-pointer
-                                        ${formData.tipo === 'Ingreso' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-red-50 border-red-200 text-red-700'}
-                                    `}
+                                    value={formData.cuenta_id}
+                                    onChange={(e) => handleSeleccionarCuenta(e.target.value)}
+                                    className="border-2 border-slate-100 rounded-xl px-4 py-3 font-bold text-sm bg-white outline-none focus:border-[#0055af]"
                                 >
-                                    <option value="Ingreso">📈 INGRESO</option>
-                                    <option value="Gasto">📉 GASTO</option>
+                                    <option value="">-- Seleccionar Cuenta --</option>
+                                    {cuentas.map(cta => (
+                                        <option key={cta.id} value={cta.id}>{cta.alias} ({cta.banco})</option>
+                                    ))}
                                 </select>
                             </div>
+
                             <div className="flex flex-col gap-1.5">
-                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Monto (Bs.) *</label>
+                                <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest pl-1">ID Operación / Ref</label>
                                 <input
-                                    type="number" step="0.01" required
-                                    value={formData.monto}
-                                    onChange={e => setFormData({ ...formData, monto: e.target.value })}
-                                    className="border-2 border-slate-200 rounded-xl px-4 py-3 outline-none focus:border-blue-500 font-black text-slate-800 text-lg"
-                                    placeholder="0.00"
+                                    type="text"
+                                    placeholder="Ej. TRANS-12345"
+                                    className="border-2 border-slate-100 rounded-xl px-4 py-3 font-bold text-sm outline-none focus:border-[#0055af]"
+                                    value={formData.id_operacion || ''}
+                                    onChange={e => setFormData({ ...formData, id_operacion: e.target.value })}
                                 />
                             </div>
                         </div>
 
-                        <div className="flex flex-col gap-1.5">
-                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Concepto / Detalle *</label>
+                        {/* Campos de solo lectura con datos bancarios */}
+                        <div className="grid grid-cols-2 gap-4">
                             <input
-                                type="text" required
-                                value={formData.concepto}
-                                onChange={e => setFormData({ ...formData, concepto: e.target.value })}
-                                className="border border-slate-200 rounded-xl px-4 py-2.5 outline-none focus:border-blue-500 font-medium text-slate-800 bg-slate-50 focus:bg-white transition-colors"
-                                placeholder="Ej: Adelanto de pago, Compra de insumos..."
+                                type="text"
+                                readOnly
+                                className="border-none bg-slate-50 rounded-lg px-2 py-1 text-[10px] font-bold text-slate-500"
+                                value={`Banco: ${formData.banco || 'Efectivo'}`}
+                            />
+                            <input
+                                type="text"
+                                readOnly
+                                className="border-none bg-slate-50 rounded-lg px-2 py-1 text-[10px] font-bold text-slate-500"
+                                value={`Titular: ${formData.titular || 'N/A'}`}
                             />
                         </div>
 
-                        <hr className="border-slate-100" />
+                        {/* Concepto */}
+                        <input
+                            type="text"
+                            required
+                            placeholder="Concepto / Detalle"
+                            className="border rounded-xl px-4 py-3 outline-none focus:border-[#0055af] text-sm font-bold"
+                            value={formData.concepto}
+                            onChange={e => setFormData({ ...formData, concepto: e.target.value })}
+                        />
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div className="flex flex-col gap-1.5">
-                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Vincular a Proyecto</label>
-                                <select
-                                    value={formData.cliente_id}
-                                    onChange={e => setFormData({ ...formData, cliente_id: e.target.value })}
-                                    className="border border-slate-200 rounded-xl px-4 py-2.5 outline-none focus:border-blue-500 font-bold text-slate-700 bg-slate-50 cursor-pointer"
-                                >
-                                    <option value="">-- Gasto General / Ninguno --</option>
-                                    {formData.tipo === 'Gasto' && (
-                                        <option value="pago-personal" className="bg-indigo-100 text-indigo-800 font-black">
-                                            🏢 PAGO AL PERSONAL / NÓMINA
-                                        </option>
-                                    )}
-                                    <optgroup label="Leads / Clientes Activos">
-                                        {clientes.map(c => (
-                                            /* ADAPTADO: Usamos 'c.nombre' */
-                                            <option key={c.id} value={c.id}>{c.nombre}</option>
-                                        ))}
-                                    </optgroup>
-                                </select>
-                            </div>
-
-                            <div className="flex flex-col gap-1.5">
-                                <label className={`text-[10px] font-black uppercase tracking-widest ${formData.cliente_id === 'pago-personal' ? 'text-indigo-500' : 'text-slate-400'}`}>
-                                    {formData.cliente_id === 'pago-personal' ? '💼 Seleccionar Empleado' : '🛠️ Servicio Realizado'}
-                                </label>
-
-                                {formData.cliente_id === 'pago-personal' ? (
+                        {/* Consumo de inventario (solo si es gasto) */}
+                        {formData.tipo === 'Gasto' && (
+                            <div className="bg-amber-50 p-4 rounded-2xl border border-amber-200 flex flex-col gap-2">
+                                <label className="text-[10px] font-black text-amber-800 uppercase block">¿Consumiste insumos de inventario?</label>
+                                <div className="flex gap-2">
                                     <select
-                                        onChange={handleSeleccionarEmpleado}
-                                        className="border-2 border-indigo-200 rounded-xl px-4 py-2.5 outline-none focus:border-indigo-500 font-black text-indigo-800 bg-indigo-50 cursor-pointer"
+                                        className="flex-1 border rounded-lg px-2 py-2 text-sm bg-white font-bold text-slate-700"
+                                        onChange={e => setConsumo({ ...consumo, inventario_id: e.target.value })}
                                     >
-                                        <option value="">-- Elegir Empleado --</option>
-                                        {personal.map(emp => (
-                                            <option key={emp.id} value={emp.id}>{emp.titular}</option>
+                                        <option value="">Seleccionar producto...</option>
+                                        {productos.map(p => (
+                                            <option key={p.id} value={p.id}>{p.nombre} ({p.cantidad} disp.)</option>
                                         ))}
                                     </select>
-                                ) : (
-                                    <select
-                                        value={formData.servicio}
-                                        onChange={e => setFormData({ ...formData, servicio: e.target.value })}
-                                        className="border border-slate-200 rounded-xl px-4 py-2.5 outline-none focus:border-blue-500 font-bold text-slate-700 bg-slate-50 cursor-pointer"
-                                    >
-                                        <option value="">-- Seleccionar --</option>
-                                        <option value="Limpieza de interiores">Limpieza de interiores</option>
-                                        <option value="Encerado de pisos">Encerado de pisos</option>
-                                        <option value="Limpieza de vidrios">Limpieza de vidrios</option>
-                                        <option value="Servicio Completo">Servicio Completo</option>
-                                    </select>
-                                )}
-                            </div>
-                        </div>
-
-                        {formData.cliente_id !== 'pago-personal' && (
-                            <div className="flex flex-col gap-1.5">
-                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Categoría Contable</label>
-                                <select
-                                    value={formData.categoria}
-                                    onChange={e => setFormData({ ...formData, categoria: e.target.value })}
-                                    className="border border-slate-200 rounded-xl px-4 py-2.5 outline-none focus:border-blue-500 font-medium text-slate-700 bg-slate-50"
-                                >
-                                    <option value="">-- General --</option>
-                                    {formData.tipo === 'Ingreso' ? (
-                                        <>
-                                            <option value="Venta Directa">Venta Directa</option>
-                                            <option value="Abono / Anticipo">Abono / Anticipo</option>
-                                        </>
-                                    ) : (
-                                        <>
-                                            <option value="Materiales/Insumos">Materiales/Insumos</option>
-                                            <option value="Transporte">Transporte</option>
-                                            <option value="Publicidad">Publicidad / Marketing</option>
-                                        </>
-                                    )}
-                                </select>
+                                    <div className="flex items-center gap-1">
+                                        <input
+                                            type="number"
+                                            placeholder="Cant."
+                                            className="w-20 border rounded-lg px-2 py-2 text-sm font-bold"
+                                            onChange={e => setConsumo({ ...consumo, cantidad: parseFloat(e.target.value) })}
+                                        />
+                                        <span className="text-[10px] font-bold text-amber-700 uppercase w-12">
+                                            {consumo.inventario_id ? productos.find(p => p.id === consumo.inventario_id)?.unidad_medida : ''}
+                                        </span>
+                                    </div>
+                                </div>
                             </div>
                         )}
 
-                        <hr className="border-slate-100" />
+                        {/* Proyecto / Cliente y Servicio */}
+                        <div className="grid grid-cols-2 gap-4">
+                            <select
+                                value={formData.cliente_id}
+                                onChange={e => setFormData({ ...formData, cliente_id: e.target.value })}
+                                className="border rounded-xl px-4 py-3 text-sm font-bold bg-white outline-none focus:border-[#0055af]"
+                            >
+                                <option value="">-- Proyecto (Cliente) --</option>
+                                {formData.tipo === 'Gasto' && (
+                                    <option value="pago-personal" className="bg-[#ffdd1c]/20 text-[#0055af]">🏢 PAGO AL PERSONAL</option>
+                                )}
+                                {clientes.map(c => (
+                                    <option key={c.id} value={c.id}>{c.nombres}</option>
+                                ))}
+                            </select>
 
-                        <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                            <h3 className="text-xs font-black text-slate-700 mb-3 flex items-center gap-2"><span>🏦</span> Datos de Conciliación Bancaria</h3>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                <input type="text" placeholder="Banco (Ej. BNB, BCP, Efectivo)" value={formData.banco} onChange={e => setFormData({ ...formData, banco: e.target.value })} className="border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500" />
-                                <input type="text" placeholder="Nro de Cuenta" value={formData.numero_cuenta} onChange={e => setFormData({ ...formData, numero_cuenta: e.target.value })} className="border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500" />
-                                <input type="text" placeholder="Titular de la cuenta" value={formData.titular} onChange={e => setFormData({ ...formData, titular: e.target.value })} className="border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500" />
-                                <input type="text" placeholder="ID de Transacción / Ref" value={formData.id_operacion} onChange={e => setFormData({ ...formData, id_operacion: e.target.value })} className="border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500" />
-                            </div>
+                            {formData.cliente_id === 'pago-personal' ? (
+                                <select
+                                    onChange={e => {
+                                        const emp = personal.find(p => p.id === e.target.value);
+                                        if (emp)
+                                            setFormData({
+                                                ...formData,
+                                                servicio: `Sueldo: ${emp.titular}`,
+                                                banco: emp.banco,
+                                                numero_cuenta: emp.numero_cuenta,
+                                                titular: emp.titular
+                                            });
+                                    }}
+                                    className="border rounded-xl px-4 py-3 text-sm font-bold bg-white outline-none focus:border-[#0055af]"
+                                >
+                                    <option value="">-- Seleccionar Empleado --</option>
+                                    {personal.map(emp => (
+                                        <option key={emp.id} value={emp.id}>{emp.titular}</option>
+                                    ))}
+                                </select>
+                            ) : (
+                                <select
+                                    value={formData.servicio}
+                                    onChange={e => setFormData({ ...formData, servicio: e.target.value })}
+                                    className="border rounded-xl px-4 py-3 text-sm font-bold bg-white outline-none focus:border-[#0055af]"
+                                >
+                                    {SERVICIOS_REALES.map(s => (
+                                        <option key={s} value={s}>{s}</option>
+                                    ))}
+                                </select>
+                            )}
                         </div>
-
                     </form>
                 </div>
 
-                <div className="p-6 border-t border-slate-100 bg-white flex justify-end gap-3">
-                    <button type="button" onClick={onClose} className="px-6 py-2.5 text-slate-600 font-bold hover:bg-slate-100 rounded-xl transition-colors">Cancelar</button>
-                    <button type="submit" form="form-finanzas" disabled={guardando} className="px-8 py-2.5 bg-blue-600 text-white font-black rounded-xl shadow-lg shadow-blue-600/30 disabled:opacity-50 hover:bg-blue-700 hover:-translate-y-0.5 transition-all">
-                        {guardando ? 'Guardando...' : 'Confirmar Registro'}
+                {/* BOTONES */}
+                <div className="p-6 border-t bg-white flex justify-end gap-3">
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        className="px-6 py-3 text-slate-500 font-bold hover:bg-slate-100 rounded-full transition-colors text-xs uppercase tracking-widest"
+                    >
+                        Cancelar
+                    </button>
+                    <button
+                        type="submit"
+                        form="form-finanzas"
+                        disabled={guardando}
+                        className="px-8 py-3 bg-[#0055af] text-white font-black rounded-full hover:-translate-y-1 shadow-lg shadow-[#0055af]/30 transition-all text-xs uppercase tracking-widest border-2 border-[#0055af] hover:border-[#ffdd1c]"
+                    >
+                        {guardando ? 'Procesando...' : 'Confirmar Registro'}
                     </button>
                 </div>
             </div>
