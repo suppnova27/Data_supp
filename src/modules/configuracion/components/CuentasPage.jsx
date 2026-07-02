@@ -133,6 +133,8 @@ export default function CuentasPage() {
                                 <option value="Banco Ganadero">Banco Ganadero</option>
                                 <option value="Banco Unión">Banco Unión</option>
                                 <option value="BCP">BCP</option>
+                                <option value="Bisa">Bisa</option>
+                                <option value="Economico">Economico</option>
                                 <option value="BNB">BNB</option>
                                 <option value="Efectivo / Caja">Efectivo / Caja</option>
                             </select>
