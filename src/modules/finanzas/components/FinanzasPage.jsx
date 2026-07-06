@@ -6,6 +6,7 @@ export default function FinanzasPage() {
     const [finanzas, setFinanzas] = useState([]);
     const [cargando, setCargando] = useState(true);
     const [modalAbierto, setModalAbierto] = useState(false);
+    const [finanzaEditando, setFinanzaEditando] = useState(null); // Nuevo estado para edición
     const [filtroMes, setFiltroMes] = useState(new Date().getMonth() + 1);
     const [filtroAnio, setFiltroAnio] = useState(new Date().getFullYear());
 
@@ -31,6 +32,12 @@ export default function FinanzasPage() {
     const gastos = finanzasFiltradas.filter(f => f.tipo === 'Gasto').reduce((acc, curr) => acc + Number(curr.monto), 0);
     const balance = ingresos - gastos;
 
+    // Función para abrir modal en modo "Nuevo" o "Editar"
+    const abrirModal = (finanza = null) => {
+        setFinanzaEditando(finanza);
+        setModalAbierto(true);
+    };
+
     const eliminarRegistro = async (id) => {
         if (window.confirm("¿Eliminar este registro financiero? Esta acción es irreversible.")) {
             await supabase.from('finanzas').delete().eq('id', id);
@@ -38,14 +45,12 @@ export default function FinanzasPage() {
         }
     };
 
-    // 🚀 EXPORTACIÓN MEJORADA: Columnas separadas
     const exportarCSV = () => {
         if (finanzasFiltradas.length === 0) {
             alert("No hay movimientos para exportar.");
             return;
         }
 
-        // Definimos las cabeceras separando los datos bancarios
         const cabeceras = ['Fecha', 'Concepto', 'Proyecto/Cliente', 'Categoria', 'Tipo', 'Monto (Bs)', 'Banco/Entidad', 'Nro Cuenta', 'Titular', 'ID Operación'];
 
         const filas = finanzasFiltradas.map(f => {
@@ -56,7 +61,6 @@ export default function FinanzasPage() {
             const tipo = `"${f.tipo}"`;
             const monto = f.monto;
 
-            // Datos bancarios separados
             const banco = `"${(f.banco || 'Efectivo').replace(/"/g, '""')}"`;
             const nroCuenta = `"${(f.numero_cuenta || '').replace(/"/g, '""')}"`;
             const titular = `"${(f.titular || '').replace(/"/g, '""')}"`;
@@ -79,13 +83,14 @@ export default function FinanzasPage() {
 
     return (
         <div className="p-4 md:p-8 max-w-[98%] mx-auto flex flex-col gap-6 animate-in fade-in pb-20">
-            {/* CABECERA Y TABLA SE MANTIENEN IGUAL... */}
             <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center bg-white p-8 rounded-3xl shadow-sm border border-slate-100 gap-6 relative overflow-hidden">
                 <div className="relative z-10">
                     <h1 className="text-3xl font-black text-[#0055af] tracking-tight">Gestión Financiera</h1>
                     <p className="text-sm text-slate-500 mt-1 font-medium">Historial completo con detalle bancario.</p>
                 </div>
-                <button onClick={() => setModalAbierto(true)} className="px-8 py-3.5 bg-[#0055af] text-white font-black text-sm uppercase tracking-widest rounded-full shadow-lg hover:-translate-y-1 transition-all">+ Registrar Movimiento</button>
+                <button onClick={() => abrirModal()} className="px-8 py-3.5 bg-[#0055af] text-white font-black text-sm uppercase tracking-widest rounded-full shadow-lg hover:-translate-y-1 transition-all">
+                    + Registrar Movimiento
+                </button>
             </div>
 
             <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
@@ -129,8 +134,10 @@ export default function FinanzasPage() {
                                     <td className={`px-6 py-4 text-right font-black ${f.tipo === 'Ingreso' ? 'text-emerald-600' : 'text-rose-600'}`}>
                                         {Number(f.monto).toLocaleString('es-BO', { minimumFractionDigits: 2 })}
                                     </td>
-                                    <td className="px-6 py-4 text-center">
-                                        <button onClick={() => eliminarRegistro(f.id)} className="text-slate-300 hover:text-red-500">🗑️</button>
+                                    <td className="px-6 py-4 text-center flex justify-center items-center gap-2">
+                                        {/* BOTÓN EDITAR AÑADIDO */}
+                                        <button onClick={() => abrirModal(f)} className="text-slate-300 hover:text-[#0055af] bg-transparent hover:bg-blue-50 p-2 rounded-full transition-all">✏️</button>
+                                        <button onClick={() => eliminarRegistro(f.id)} className="text-slate-300 hover:text-red-500 bg-transparent hover:bg-red-50 p-2 rounded-full transition-all">🗑️</button>
                                     </td>
                                 </tr>
                             ))}
@@ -138,7 +145,13 @@ export default function FinanzasPage() {
                     </table>
                 </div>
             </div>
-            <FormularioFinanzaModal isOpen={modalAbierto} onClose={() => setModalAbierto(false)} onGuardado={fetchFinanzas} />
+
+            <FormularioFinanzaModal
+                isOpen={modalAbierto}
+                onClose={() => setModalAbierto(false)}
+                onGuardado={fetchFinanzas}
+                finanzaEditando={finanzaEditando}
+            />
         </div>
     );
 }
