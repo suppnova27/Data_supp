@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../../../lib/supabase';
 
-// Añadimos las opciones de "Otro" al final de las listas
 const SERVICIOS_REALES = [
     '🧹 Limpieza Rutinaria',
     '🏠 Limpieza Profunda Integral',
@@ -20,6 +19,9 @@ const SUB_SERVICIOS_RUTINARIA = [
     'Otro (Especificar)'
 ];
 
+// Función auxiliar para obtener la fecha de hoy en formato YYYY-MM-DD
+const obtenerFechaHoy = () => new Date().toISOString().split('T')[0];
+
 export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, finanzaEditando }) {
     const [guardando, setGuardando] = useState(false);
     const [clientes, setClientes] = useState([]);
@@ -27,11 +29,11 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
     const [cuentas, setCuentas] = useState([]);
     const [productos, setProductos] = useState([]);
 
-    // Añadimos campos para el texto manual
     const [formData, setFormData] = useState({
+        fecha_registro: obtenerFechaHoy(), // <-- Nuevo campo
         tipo: 'Gasto', categoria: '', concepto: '', monto: '', cliente_id: '',
         servicio: SERVICIOS_REALES[0], sub_servicio: SUB_SERVICIOS_RUTINARIA[0],
-        servicio_manual: '', sub_servicio_manual: '', // <--- Nuevos estados
+        servicio_manual: '', sub_servicio_manual: '',
         banco: 'Efectivo', numero_cuenta: '', titular: '', id_operacion: '', cuenta_id: ''
     });
 
@@ -47,11 +49,10 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
                 let servManual = '';
                 let subManual = '';
 
-                // Lógica de ingeniería inversa para leer el registro al editar
                 if (servicioBase.startsWith('🧹 Limpieza Rutinaria - ')) {
                     const partes = servicioBase.split(' - ');
                     servicioBase = partes[0];
-                    const subExtraido = partes.slice(1).join(' - '); // Por si tiene guiones extra
+                    const subExtraido = partes.slice(1).join(' - ');
 
                     if (SUB_SERVICIOS_RUTINARIA.includes(subExtraido)) {
                         subServ = subExtraido;
@@ -60,12 +61,12 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
                         subManual = subExtraido;
                     }
                 } else if (!SERVICIOS_REALES.includes(servicioBase) && servicioBase !== '' && finanzaEditando.cliente_id !== null) {
-                    // Si el servicio no está en la lista (y no es un pago a personal), es manual
                     servManual = servicioBase;
                     servicioBase = '✨ Otro (Especificar)';
                 }
 
                 setFormData({
+                    fecha_registro: finanzaEditando.fecha_registro ? finanzaEditando.fecha_registro.split('T')[0] : obtenerFechaHoy(), // <-- Cargar fecha al editar
                     tipo: finanzaEditando.tipo,
                     categoria: finanzaEditando.categoria || '',
                     concepto: finanzaEditando.concepto,
@@ -83,6 +84,7 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
                 });
             } else {
                 setFormData({
+                    fecha_registro: obtenerFechaHoy(), // <-- Reset a hoy al crear nuevo
                     tipo: 'Gasto', categoria: '', concepto: '', monto: '', cliente_id: '',
                     servicio: SERVICIOS_REALES[0], sub_servicio: SUB_SERVICIOS_RUTINARIA[0],
                     servicio_manual: '', sub_servicio_manual: '',
@@ -120,7 +122,6 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
         e.preventDefault();
         setGuardando(true);
 
-        // 🚀 Construcción inteligente del nombre del servicio
         let servicioFinal = formData.servicio === '✨ Otro (Especificar)' ? formData.servicio_manual : formData.servicio;
 
         if (formData.servicio === '🧹 Limpieza Rutinaria') {
@@ -131,12 +132,13 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
         }
 
         const datosParaSupabase = {
+            fecha_registro: formData.fecha_registro, // <-- Se envía la fecha seleccionada
             tipo: formData.tipo,
             categoria: formData.categoria,
             concepto: formData.concepto,
             monto: parseFloat(formData.monto),
             cliente_id: formData.cliente_id || null,
-            servicio: servicioFinal, // Guardamos el texto construido
+            servicio: servicioFinal,
             banco: formData.banco,
             numero_cuenta: formData.numero_cuenta,
             titular: formData.titular,
@@ -191,15 +193,29 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
 
                 <div className="p-6 overflow-y-auto custom-scrollbar">
                     <form id="form-finanzas" onSubmit={handleSubmit} className="flex flex-col gap-5">
-                        <div className="grid grid-cols-2 gap-4">
-                            <select required value={formData.tipo} onChange={e => setFormData({ ...formData, tipo: e.target.value })} className="border-2 border-slate-100 rounded-xl px-4 py-3 font-black text-slate-700 outline-none focus:border-[#0055af]">
-                                <option value="Ingreso">📈 INGRESO</option>
-                                <option value="Gasto">📉 GASTO</option>
-                            </select>
-                            <input type="number" step="0.01" required value={formData.monto} onChange={e => setFormData({ ...formData, monto: e.target.value })} className="border-2 border-slate-100 rounded-xl px-4 py-3 font-black text-lg outline-none focus:border-[#0055af]" placeholder="Monto (Bs.)" />
+
+                        {/* PRIMERA FILA: Fecha, Tipo y Monto */}
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div className="flex flex-col gap-1.5">
+                                <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest pl-1">Fecha</label>
+                                <input type="date" required value={formData.fecha_registro} onChange={e => setFormData({ ...formData, fecha_registro: e.target.value })} className="border-2 border-slate-100 rounded-xl px-4 py-3 font-bold text-sm bg-white outline-none focus:border-[#0055af]" />
+                            </div>
+
+                            <div className="flex flex-col gap-1.5">
+                                <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest pl-1">Tipo de Movimiento</label>
+                                <select required value={formData.tipo} onChange={e => setFormData({ ...formData, tipo: e.target.value })} className="border-2 border-slate-100 rounded-xl px-4 py-3 font-black text-slate-700 outline-none focus:border-[#0055af]">
+                                    <option value="Ingreso">📈 INGRESO</option>
+                                    <option value="Gasto">📉 GASTO</option>
+                                </select>
+                            </div>
+
+                            <div className="flex flex-col gap-1.5">
+                                <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest pl-1">Monto (Bs.)</label>
+                                <input type="number" step="0.01" required value={formData.monto} onChange={e => setFormData({ ...formData, monto: e.target.value })} className="border-2 border-slate-100 rounded-xl px-4 py-3 font-black text-lg outline-none focus:border-[#0055af]" placeholder="0.00" />
+                            </div>
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
                             <div className="flex flex-col gap-1.5">
                                 <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest pl-1">Cuenta Bancaria</label>
                                 <select required value={formData.cuenta_id} onChange={(e) => handleSeleccionarCuenta(e.target.value)} className="border-2 border-slate-100 rounded-xl px-4 py-3 font-bold text-sm bg-white outline-none focus:border-[#0055af]">
@@ -214,7 +230,7 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
                             </div>
                         </div>
 
-                        <input type="text" required placeholder="Concepto / Detalle" className="border-2 border-slate-100 rounded-xl px-4 py-3 outline-none focus:border-[#0055af] text-sm font-bold" value={formData.concepto} onChange={e => setFormData({ ...formData, concepto: e.target.value })} />
+                        <input type="text" required placeholder="Concepto / Detalle" className="border-2 border-slate-100 rounded-xl px-4 py-3 outline-none focus:border-[#0055af] text-sm font-bold mt-2" value={formData.concepto} onChange={e => setFormData({ ...formData, concepto: e.target.value })} />
 
                         {!finanzaEditando && formData.tipo === 'Gasto' && (
                             <div className="bg-amber-50 p-4 rounded-2xl border border-amber-200 flex flex-col gap-2">
@@ -233,40 +249,43 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
                         )}
 
                         <div className="grid grid-cols-2 gap-4">
-                            <select value={formData.cliente_id} onChange={e => setFormData({ ...formData, cliente_id: e.target.value })} className="border-2 border-slate-100 rounded-xl px-4 py-3 text-sm font-bold bg-white outline-none focus:border-[#0055af]">
-                                <option value="">-- Proyecto (Cliente) --</option>
-                                {formData.tipo === 'Gasto' && (<option value="pago-personal" className="bg-[#ffdd1c]/20 text-[#0055af]">🏢 PAGO AL PERSONAL</option>)}
-                                {clientes.map(c => <option key={c.id} value={c.id}>{c.nombres}</option>)}
-                            </select>
+                            <div className="flex flex-col gap-1.5">
+                                <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest pl-1">Proyecto Vinculado</label>
+                                <select value={formData.cliente_id} onChange={e => setFormData({ ...formData, cliente_id: e.target.value })} className="border-2 border-slate-100 rounded-xl px-4 py-3 text-sm font-bold bg-white outline-none focus:border-[#0055af]">
+                                    <option value="">-- Proyecto (Cliente) --</option>
+                                    {formData.tipo === 'Gasto' && (<option value="pago-personal" className="bg-[#ffdd1c]/20 text-[#0055af]">🏢 PAGO AL PERSONAL</option>)}
+                                    {clientes.map(c => <option key={c.id} value={c.id}>{c.nombres}</option>)}
+                                </select>
+                            </div>
 
                             {formData.cliente_id === 'pago-personal' ? (
-                                <select onChange={e => {
-                                    const emp = personal.find(p => p.id === e.target.value);
-                                    if (emp) setFormData({ ...formData, servicio: `Sueldo: ${emp.titular}`, banco: emp.banco, numero_cuenta: emp.numero_cuenta, titular: emp.titular });
-                                }} className="border-2 border-slate-100 rounded-xl px-4 py-3 text-sm font-bold bg-white outline-none focus:border-[#0055af]">
-                                    <option value="">-- Seleccionar Empleado --</option>
-                                    {personal.map(emp => <option key={emp.id} value={emp.id}>{emp.titular}</option>)}
-                                </select>
+                                <div className="flex flex-col gap-1.5">
+                                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest pl-1">Seleccionar Empleado</label>
+                                    <select onChange={e => {
+                                        const emp = personal.find(p => p.id === e.target.value);
+                                        if (emp) setFormData({ ...formData, servicio: `Sueldo: ${emp.titular}`, banco: emp.banco, numero_cuenta: emp.numero_cuenta, titular: emp.titular });
+                                    }} className="border-2 border-slate-100 rounded-xl px-4 py-3 text-sm font-bold bg-white outline-none focus:border-[#0055af]">
+                                        <option value="">-- Seleccionar Empleado --</option>
+                                        {personal.map(emp => <option key={emp.id} value={emp.id}>{emp.titular}</option>)}
+                                    </select>
+                                </div>
                             ) : (
-                                <div className="flex flex-col gap-2">
-                                    {/* SELECTOR PRINCIPAL */}
+                                <div className="flex flex-col gap-1.5">
+                                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest pl-1">Servicio Realizado</label>
                                     <select value={formData.servicio} onChange={e => setFormData({ ...formData, servicio: e.target.value })} className="border-2 border-slate-100 rounded-xl px-4 py-3 text-sm font-bold bg-white outline-none focus:border-[#0055af]">
                                         {SERVICIOS_REALES.map(s => <option key={s} value={s}>{s}</option>)}
                                     </select>
 
-                                    {/* INPUT MANUAL PARA SERVICIO PRINCIPAL */}
                                     {formData.servicio === '✨ Otro (Especificar)' && (
                                         <input type="text" placeholder="Escribe el servicio aquí..." required className="border-2 border-emerald-200 bg-emerald-50 rounded-xl px-4 py-2 text-sm font-bold outline-none focus:border-emerald-500 animate-in slide-in-from-top-2" value={formData.servicio_manual} onChange={e => setFormData({ ...formData, servicio_manual: e.target.value })} />
                                     )}
 
-                                    {/* SUB-MENÚ CONDICIONAL */}
                                     {formData.servicio === '🧹 Limpieza Rutinaria' && (
                                         <div className="flex flex-col gap-2 animate-in slide-in-from-top-2">
                                             <select value={formData.sub_servicio} onChange={e => setFormData({ ...formData, sub_servicio: e.target.value })} className="border-2 border-blue-200 bg-blue-50 text-[#0055af] rounded-xl px-4 py-2 text-xs font-black outline-none focus:border-[#0055af]">
                                                 {SUB_SERVICIOS_RUTINARIA.map(sub => <option key={sub} value={sub}>{sub}</option>)}
                                             </select>
 
-                                            {/* INPUT MANUAL PARA SUB-SERVICIO */}
                                             {formData.sub_servicio === 'Otro (Especificar)' && (
                                                 <input type="text" placeholder="¿Qué se va a lavar?" required className="border-2 border-emerald-200 bg-emerald-50 rounded-xl px-4 py-2 text-sm font-bold outline-none focus:border-emerald-500 animate-in slide-in-from-top-2" value={formData.sub_servicio_manual} onChange={e => setFormData({ ...formData, sub_servicio_manual: e.target.value })} />
                                             )}
