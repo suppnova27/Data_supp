@@ -26,6 +26,8 @@ export default function ClientesPage() {
     const [filtroServicio, setFiltroServicio] = useState('Todos');
     const [filtroEtiqueta, setFiltroEtiqueta] = useState('Todos');
 
+    const [vistaTab, setVistaTab] = useState('kanban'); // 'kanban' o 'directorio'
+
     const [modalAbierto, setModalAbierto] = useState(false);
     const [guardando, setGuardando] = useState(false);
     const [formData, setFormData] = useState({
@@ -38,7 +40,7 @@ export default function ClientesPage() {
 
     const fetchClientes = async () => {
         setCargando(true);
-        const { data } = await supabase.from('clientes').select('*').eq('cerrado', false).order('fecha_creacion', { ascending: false });
+        const { data } = await supabase.from('clientes').select('*').order('fecha_creacion', { ascending: false });
         if (data) setClientes(data);
         setCargando(false);
     };
@@ -73,6 +75,18 @@ export default function ClientesPage() {
         fetchClientes();
     };
 
+    const handleReabrir = async (id) => {
+        const { error } = await supabase.from('clientes').update({ cerrado: false, motivo_cierre: null, estado: 'Nuevo Lead' }).eq('id', id);
+        if (!error) fetchClientes();
+    };
+
+    const handleEliminar = async (id, nombres) => {
+        if (window.confirm(`¿Eliminar permanentemente al cliente "${nombres}"? Esto removerá todos sus datos históricos.`)) {
+            const { error } = await supabase.from('clientes').delete().eq('id', id);
+            if (!error) fetchClientes();
+        }
+    };
+
     const ejecutarArchivado = async () => {
         if (!cerrandoId) return;
         const estadoFinal = motivoCierre === 'Venta concretada' ? 'Venta concretada' : 'Perdido';
@@ -88,6 +102,10 @@ export default function ClientesPage() {
             return cumpleBusqueda && cumpleServicio && cumpleEtiqueta;
         });
     }, [clientes, busqueda, filtroServicio, filtroEtiqueta]);
+
+    const activeClientesFiltrados = useMemo(() => {
+        return clientesFiltrados.filter(c => !c.cerrado);
+    }, [clientesFiltrados]);
 
     if (cargando) return <div className="p-10 text-center text-slate-500 animate-pulse font-black tracking-widest uppercase">Cargando Tablero...</div>;
 
@@ -119,94 +137,206 @@ export default function ClientesPage() {
                 </div>
             </div>
 
-            <div className="flex flex-col lg:flex-row gap-6 overflow-x-auto pb-6 items-start custom-scrollbar">
-                {COLUMNAS_KANBAN.map(columna => {
-                    const leadsDeColumna = clientesFiltrados.filter(c => c.estado === columna);
-                    return (
-                        <div key={columna} className="flex-1 min-w-[340px] w-full bg-slate-100/60 p-4 md:p-5 rounded-3xl border border-slate-200/60 flex flex-col gap-5 shadow-inner">
+            {/* TABS DE SELECCIÓN DE VISTA */}
+            <div className="flex gap-2 border-b border-slate-200 pb-3 mt-2">
+                <button
+                    type="button"
+                    onClick={() => setVistaTab('kanban')}
+                    className={`px-6 py-2.5 rounded-full text-xs font-black uppercase tracking-wider transition-all shadow-sm ${
+                        vistaTab === 'kanban' 
+                            ? 'bg-[#0055af] text-white border-2 border-[#0055af]' 
+                            : 'bg-white hover:bg-slate-50 border-2 border-slate-100 text-slate-600'
+                    }`}
+                >
+                    📋 Tablero Kanban (Pipeline)
+                </button>
+                <button
+                    type="button"
+                    onClick={() => setVistaTab('directorio')}
+                    className={`px-6 py-2.5 rounded-full text-xs font-black uppercase tracking-wider transition-all shadow-sm ${
+                        vistaTab === 'directorio' 
+                            ? 'bg-[#0055af] text-white border-2 border-[#0055af]' 
+                            : 'bg-white hover:bg-slate-50 border-2 border-slate-100 text-slate-600'
+                    }`}
+                >
+                    👥 Directorio General de Clientes
+                </button>
+            </div>
 
-                            <div className="flex justify-between items-center px-2">
-                                <h3 className="font-black text-slate-700 text-xs uppercase tracking-wider flex items-center gap-2.5">
-                                    <span className={`w-3 h-3 rounded-full shadow-sm
-                                        ${columna === 'Nuevo Lead' ? 'bg-[#ffdd1c] shadow-[#ffdd1c]/50' :
-                                            columna === 'En negociación' ? 'bg-purple-500 shadow-purple-500/50' :
-                                                columna === 'Cotización enviada' ? 'bg-[#0055af] shadow-[#0055af]/50' : 'bg-slate-400'}`} />
-                                    {columna}
-                                </h3>
-                                <span className="bg-white text-slate-800 font-black text-xs px-3 py-1 rounded-full shadow-sm border border-slate-200/50">{leadsDeColumna.length}</span>
-                            </div>
+            {vistaTab === 'kanban' && (
+                <div className="flex flex-col lg:flex-row gap-6 overflow-x-auto pb-6 items-start custom-scrollbar animate-in fade-in duration-300">
+                    {COLUMNAS_KANBAN.map(columna => {
+                        const leadsDeColumna = activeClientesFiltrados.filter(c => c.estado === columna);
+                        return (
+                            <div key={columna} className="flex-1 min-w-[340px] w-full bg-slate-100/60 p-4 md:p-5 rounded-3xl border border-slate-200/60 flex flex-col gap-5 shadow-inner">
 
-                            <div className="flex flex-col gap-4 max-h-[66vh] overflow-y-auto pr-2 custom-scrollbar min-h-[180px]">
-                                {leadsDeColumna.length === 0 ? (
-                                    <div className="text-center py-12 text-slate-400 text-xs italic bg-white/40 border-2 border-dashed border-slate-200 rounded-2xl animate-in fade-in duration-300">No hay prospectos en esta fase</div>
-                                ) : (
-                                    leadsDeColumna.map(c => (
-                                        <div key={c.id} className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100 hover:border-slate-200 hover:shadow-xl hover:shadow-[#0055af]/10 hover:-translate-y-1.5 transition-all duration-300 flex flex-col gap-4 relative overflow-hidden group animate-in fade-in slide-in-from-bottom-4 duration-300">
+                                <div className="flex justify-between items-center px-2">
+                                    <h3 className="font-black text-slate-700 text-xs uppercase tracking-wider flex items-center gap-2.5">
+                                        <span className={`w-3 h-3 rounded-full shadow-sm
+                                            ${columna === 'Nuevo Lead' ? 'bg-[#ffdd1c] shadow-[#ffdd1c]/50' :
+                                                columna === 'En negociación' ? 'bg-purple-500 shadow-purple-500/50' :
+                                                    columna === 'Cotización enviada' ? 'bg-[#0055af] shadow-[#0055af]/50' : 'bg-slate-400'}`} />
+                                        {columna}
+                                    </h3>
+                                    <span className="bg-white text-slate-800 font-black text-xs px-3 py-1 rounded-full shadow-sm border border-slate-200/50">{leadsDeColumna.length}</span>
+                                </div>
 
-                                            <div className={`absolute top-0 left-0 right-0 h-1.5 transition-all duration-300
-                                                ${columna === 'Nuevo Lead' ? 'bg-[#ffdd1c]' :
-                                                    columna === 'En negociación' ? 'bg-purple-500' :
-                                                        columna === 'Cotización enviada' ? 'bg-[#0055af]' : 'bg-slate-400'}`} />
+                                <div className="flex flex-col gap-4 max-h-[66vh] overflow-y-auto pr-2 custom-scrollbar min-h-[180px]">
+                                    {leadsDeColumna.length === 0 ? (
+                                        <div className="text-center py-12 text-slate-400 text-xs italic bg-white/40 border-2 border-dashed border-slate-200 rounded-2xl animate-in fade-in duration-300">No hay prospectos en esta fase</div>
+                                    ) : (
+                                        leadsDeColumna.map(c => (
+                                            <div key={c.id} className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100 hover:border-slate-200 hover:shadow-xl hover:shadow-[#0055af]/10 hover:-translate-y-1.5 transition-all duration-300 flex flex-col gap-4 relative overflow-hidden group animate-in fade-in slide-in-from-bottom-4 duration-300">
 
-                                            <div className="flex justify-between items-start gap-2 mt-1">
-                                                <div className="flex flex-col gap-1 max-w-[60%]">
-                                                    <h4 className="font-black text-slate-800 text-lg tracking-tight leading-tight group-hover:text-[#0055af] transition-colors">{c.nombres}</h4>
-                                                    <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2.5 py-1 rounded-full w-max flex items-center gap-1.5 mt-0.5">
-                                                        <span>📱</span> {c.telefono}
+                                                <div className={`absolute top-0 left-0 right-0 h-1.5 transition-all duration-300
+                                                    ${columna === 'Nuevo Lead' ? 'bg-[#ffdd1c]' :
+                                                        columna === 'En negociación' ? 'bg-purple-500' :
+                                                            columna === 'Cotización enviada' ? 'bg-[#0055af]' : 'bg-slate-400'}`} />
+
+                                                <div className="flex justify-between items-start gap-2 mt-1">
+                                                    <div className="flex flex-col gap-1 max-w-[60%]">
+                                                        <h4 className="font-black text-slate-800 text-lg tracking-tight leading-tight group-hover:text-[#0055af] transition-colors">{c.nombres}</h4>
+                                                        <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2.5 py-1 rounded-full w-max flex items-center gap-1.5 mt-0.5">
+                                                            <span>📱</span> {c.telefono}
+                                                        </span>
+                                                    </div>
+                                                    <span className="text-[9px] bg-[#0055af]/5 text-[#0055af] px-3 py-1.5 rounded-full font-black uppercase tracking-widest border border-[#0055af]/20 shrink-0 truncate max-w-[40%] text-center shadow-sm">
+                                                        {c.etiqueta || '✨ Residencial'}
                                                     </span>
                                                 </div>
-                                                <span className="text-[9px] bg-[#0055af]/5 text-[#0055af] px-3 py-1.5 rounded-full font-black uppercase tracking-widest border border-[#0055af]/20 shrink-0 truncate max-w-[40%] text-center shadow-sm">
-                                                    {c.etiqueta || '✨ Residencial'}
-                                                </span>
-                                            </div>
 
-                                            <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 flex items-center gap-2.5 text-xs font-bold text-slate-700 shadow-inner">
-                                                <span className="truncate">{c.trabajo_realizado || '💼 Por definir'}</span>
-                                            </div>
-
-                                            {c.resumen_bot && (
-                                                <div className="text-[10px] bg-[#0055af]/5 border border-[#0055af]/20 text-slate-600 p-3 rounded-2xl font-semibold leading-relaxed shadow-sm">
-                                                    <span className="font-black text-[#0055af] block mb-1 uppercase tracking-wider text-[8px]">🤖 Notas de IA:</span>
-                                                    <p className="line-clamp-2">{c.resumen_bot}</p>
+                                                <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 flex items-center gap-2.5 text-xs font-bold text-slate-700 shadow-inner">
+                                                    <span className="truncate">{c.trabajo_realizado || '💼 Por definir'}</span>
                                                 </div>
-                                            )}
 
-                                            {/* CONTROLES INFERIORES REDISEÑADOS PREMIUM */}
-                                            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4 mt-1">
+                                                {c.resumen_bot && (
+                                                    <div className="text-[10px] bg-[#0055af]/5 border border-[#0055af]/20 text-slate-600 p-3 rounded-2xl font-semibold leading-relaxed shadow-sm">
+                                                        <span className="font-black text-[#0055af] block mb-1 uppercase tracking-wider text-[8px]">🤖 Notas de IA:</span>
+                                                        <p className="line-clamp-2">{c.resumen_bot}</p>
+                                                    </div>
+                                                )}
 
-                                                {/* DESPLEGABLE ESTADO REDISEÑADO */}
-                                                <div className="relative flex-1 min-w-[130px]">
-                                                    <select
-                                                        value={c.estado}
-                                                        onChange={e => cambiarEstadoKanban(c.id, e.target.value)}
-                                                        className="w-full appearance-none bg-slate-50 border-2 border-slate-100 hover:border-[#0055af]/40 focus:border-[#0055af] text-[#0055af] font-black text-[9px] uppercase tracking-wider px-4 py-2.5 rounded-full outline-none cursor-pointer transition-all shadow-sm"
-                                                    >
-                                                        {COLUMNAS_KANBAN.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                                                    </select>
-                                                    {/* Flecha personalizada para ocultar la fea del navegador */}
-                                                    <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-[#0055af] font-black text-xs">
-                                                        ▼
+                                                {/* CONTROLES INFERIORES REDISEÑADOS PREMIUM */}
+                                                <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4 mt-1">
+
+                                                    {/* DESPLEGABLE ESTADO REDISEÑADO */}
+                                                    <div className="relative flex-1 min-w-[130px]">
+                                                        <select
+                                                            value={c.estado}
+                                                            onChange={e => cambiarEstadoKanban(c.id, e.target.value)}
+                                                            className="w-full appearance-none bg-slate-50 border-2 border-slate-100 hover:border-[#0055af]/40 focus:border-[#0055af] text-[#0055af] font-black text-[9px] uppercase tracking-wider px-4 py-2.5 rounded-full outline-none cursor-pointer transition-all shadow-sm"
+                                                        >
+                                                            {COLUMNAS_KANBAN.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                                                        </select>
+                                                        {/* Flecha personalizada para ocultar la fea del navegador */}
+                                                        <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-[#0055af] font-black text-xs">
+                                                            ▼
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="flex gap-2 shrink-0">
+                                                        <button onClick={() => abrirModal(c)} className="px-4 py-2.5 bg-[#0055af] text-white hover:bg-[#ffdd1c] hover:text-[#0055af] rounded-full font-black text-[9px] uppercase tracking-wider transition-all duration-300 shadow-md shadow-[#0055af]/20 active:scale-95">
+                                                            Ficha
+                                                        </button>
+                                                        <button onClick={() => setCerrandoId(c.id)} className="px-4 py-2.5 bg-[#0055af] text-white hover:bg-[#ffdd1c] hover:text-[#0055af] rounded-full font-black text-[9px] uppercase tracking-wider transition-all duration-300 shadow-md shadow-[#0055af]/20 active:scale-95">
+                                                            📦 Archivar
+                                                        </button>
                                                     </div>
                                                 </div>
 
-                                                <div className="flex gap-2 shrink-0">
-                                                    <button onClick={() => abrirModal(c)} className="px-4 py-2.5 bg-[#0055af] text-white hover:bg-[#ffdd1c] hover:text-[#0055af] rounded-full font-black text-[9px] uppercase tracking-wider transition-all duration-300 shadow-md shadow-[#0055af]/20 active:scale-95">
-                                                        Ficha
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+
+            {vistaTab === 'directorio' && (
+                <div className="w-full bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden animate-in fade-in duration-300">
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-left text-sm text-slate-600 min-w-[700px]">
+                            <thead className="bg-slate-50 border-b border-slate-200 uppercase text-[10px] font-black text-slate-400">
+                                <tr>
+                                    <th className="px-6 py-4">Cliente / Lead</th>
+                                    <th className="px-6 py-4">Estado</th>
+                                    <th className="px-6 py-4">Servicio de Interés</th>
+                                    <th className="px-6 py-4">Etiqueta</th>
+                                    <th className="px-6 py-4 text-right">Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                                {clientesFiltrados.length === 0 ? (
+                                    <tr><td colSpan="5" className="p-12 text-center text-slate-400 italic">No hay registros que coincidan con la búsqueda.</td></tr>
+                                ) : (
+                                    clientesFiltrados.map(c => (
+                                        <tr key={c.id} className="hover:bg-slate-50 transition-colors">
+                                            <td className="px-6 py-4">
+                                                <div className="font-bold text-slate-800 text-base">{c.nombres} {c.apellido_paterno || ''}</div>
+                                                <div className="text-[10px] text-slate-400 font-bold tracking-wider mt-1 flex items-center gap-2">
+                                                    <span>📱 {c.telefono || 'Sin número'}</span>
+                                                    <span>•</span>
+                                                    <span>📅 Reg: {new Date(c.fecha_creacion).toLocaleDateString('es-BO')}</span>
+                                                </div>
+                                            </td>
+                                            <td className="px-6 py-4">
+                                                {c.cerrado ? (
+                                                    <span className="px-3 py-1.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-rose-100 text-rose-700 flex items-center gap-1 w-max">
+                                                        📦 Archivado: {c.motivo_cierre || 'Cerrado'}
+                                                    </span>
+                                                ) : (
+                                                    <span className="px-3 py-1.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-emerald-100 text-emerald-700 flex items-center gap-1 w-max">
+                                                        ⚡ Activo: {c.estado}
+                                                    </span>
+                                                )}
+                                            </td>
+                                            <td className="px-6 py-4 text-xs font-semibold">{c.trabajo_realizado || <span className="italic text-slate-400">Por definir</span>}</td>
+                                            <td className="px-6 py-4 text-xs font-bold text-slate-500">{c.etiqueta || '-'}</td>
+                                            <td className="px-6 py-4 text-right">
+                                                <div className="flex justify-end gap-2">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => abrirModal(c)}
+                                                        className="px-3 py-2 bg-blue-50 text-[#0055af] rounded-lg text-xs font-black hover:bg-[#0055af] hover:text-white transition-all shadow-sm"
+                                                    >
+                                                        ✏️ Editar
                                                     </button>
-                                                    <button onClick={() => setCerrandoId(c.id)} className="px-4 py-2.5 bg-[#0055af] text-white hover:bg-[#ffdd1c] hover:text-[#0055af] rounded-full font-black text-[9px] uppercase tracking-wider transition-all duration-300 shadow-md shadow-[#0055af]/20 active:scale-95">
-                                                        📦 Archivar
+                                                    {c.cerrado ? (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleReabrir(c.id)}
+                                                            className="px-3 py-2 bg-emerald-50 text-emerald-700 rounded-lg text-xs font-black hover:bg-emerald-600 hover:text-white transition-all shadow-sm"
+                                                        >
+                                                            🔄 Activar
+                                                        </button>
+                                                    ) : (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setCerrandoId(c.id)}
+                                                            className="px-3 py-2 bg-slate-100 text-slate-600 rounded-lg text-xs font-black hover:bg-slate-300 transition-all shadow-sm"
+                                                        >
+                                                            📦 Archivar
+                                                        </button>
+                                                    )}
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleEliminar(c.id, c.nombres)}
+                                                        className="px-3 py-2 text-rose-400 hover:text-white hover:bg-rose-500 rounded-lg transition-all text-xs"
+                                                    >
+                                                        🗑️ Eliminar
                                                     </button>
                                                 </div>
-                                            </div>
-
-                                        </div>
-                                    ))
-                                )}
-                            </div>
-                        </div>
-                    );
-                })}
-            </div>
+                                            </td>
+                                        </tr>
+                                    )))
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            )}
 
             {modalAbierto && (
                 <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[110] p-4">

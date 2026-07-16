@@ -1,8 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../../lib/supabase';
+import * as XLSX from 'xlsx';
 
 export default function CuentasPage() {
     const [cuentas, setCuentas] = useState([]);
+    const [finanzas, setFinanzas] = useState([]);
     const [cargando, setCargando] = useState(true);
     const [modalAbierto, setModalAbierto] = useState(false);
 
@@ -21,7 +23,9 @@ export default function CuentasPage() {
         setCargando(true);
 
         const { data: dataCuentas } = await supabase.from('directorio_cuentas').select('*').order('alias', { ascending: true });
-        const { data: dataFinanzas } = await supabase.from('finanzas').select('cuenta_id, monto, tipo');
+        const { data: dataFinanzas } = await supabase.from('finanzas').select('*');
+
+        if (dataFinanzas) setFinanzas(dataFinanzas);
 
         if (dataCuentas) {
             const cuentasConSaldo = dataCuentas.map(cuenta => {
@@ -42,6 +46,73 @@ export default function CuentasPage() {
     };
 
     useEffect(() => { fetchCuentas(); }, []);
+
+    const resumenCuentas = useMemo(() => {
+        return cuentas.map(cuenta => {
+            let entrante = 0;
+            let saliente = 0;
+
+            finanzas.forEach(mov => {
+                const coincideCuenta = 
+                    (mov.cuenta_id && cuenta.id && String(mov.cuenta_id) === String(cuenta.id)) ||
+                    (!mov.cuenta_id && (
+                        (mov.numero_cuenta && cuenta.numero_cuenta && mov.numero_cuenta.trim() === cuenta.numero_cuenta.trim()) ||
+                        (mov.banco && cuenta.banco && mov.banco.trim().toLowerCase() === cuenta.banco.trim().toLowerCase() && 
+                         mov.titular && cuenta.titular && mov.titular.trim().toLowerCase() === cuenta.titular.trim().toLowerCase())
+                    ));
+
+                if (coincideCuenta) {
+                    if (mov.tipo === 'Ingreso') {
+                        entrante += Number(mov.monto);
+                    } else if (mov.tipo === 'Gasto') {
+                        saliente += Number(mov.monto);
+                    }
+                }
+            });
+
+            return {
+                ...cuenta,
+                entrante,
+                saliente,
+                neto: Number(cuenta.saldo_inicial || 0) + entrante - saliente
+            };
+        });
+    }, [cuentas, finanzas]);
+
+    const descargarExcel = () => {
+        try {
+            const datosFormateados = resumenCuentas.map(c => ({
+                'Alias de Cuenta': c.alias,
+                'Titular': c.titular,
+                'Banco': c.banco || 'Efectivo',
+                'Nro. Cuenta': c.numero_cuenta || 'N/A',
+                'Tipo de Cuenta': c.tipo,
+                'Saldo Inicial (Bs)': Number(c.saldo_inicial || 0),
+                'Dinero Entrante (Bs)': Number(c.entrante),
+                'Dinero Saliente (Bs)': Number(c.saliente),
+                'Balance Neto (Bs)': Number(c.neto)
+            }));
+
+            const worksheet = XLSX.utils.json_to_sheet(datosFormateados);
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, "Resumen de Cuentas");
+
+            // Autoajustar columnas
+            const maxLens = {};
+            datosFormateados.forEach(row => {
+                Object.keys(row).forEach(key => {
+                    const val = String(row[key]);
+                    maxLens[key] = Math.max(maxLens[key] || 10, val.length + 2);
+                });
+            });
+            worksheet['!cols'] = Object.keys(maxLens).map(key => ({ wch: maxLens[key] }));
+
+            XLSX.writeFile(workbook, `Resumen_Cuentas_ORE_${new Date().toLocaleDateString('es-BO')}.xlsx`);
+        } catch (error) {
+            alert("Error al exportar a Excel");
+            console.error(error);
+        }
+    };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -83,6 +154,58 @@ export default function CuentasPage() {
                 >
                     + Añadir Cuenta
                 </button>
+            </div>
+
+            {/* PANEL RESUMEN DE CUENTAS */}
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex flex-col gap-4">
+                <div className="flex justify-between items-center border-b pb-4">
+                    <div>
+                        <h2 className="text-lg font-black text-slate-800 flex items-center gap-2">
+                            <span>📊</span> Resumen del Flujo de Cuentas
+                        </h2>
+                        <p className="text-xs text-slate-500">Total acumulado de flujos entrantes y salientes por cuenta conciliada.</p>
+                    </div>
+                    <button
+                        onClick={descargarExcel}
+                        className="px-4 py-2 bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-700 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm"
+                    >
+                        📥 Descargar Excel
+                    </button>
+                </div>
+                <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs text-slate-600">
+                        <thead className="bg-slate-50 uppercase text-[9px] font-bold text-slate-500 border-b">
+                            <tr>
+                                <th className="px-4 py-3">Alias</th>
+                                <th className="px-4 py-3">Titular</th>
+                                <th className="px-4 py-3">Banco / Nro. Cuenta</th>
+                                <th className="px-4 py-3 text-right">Saldo Inicial</th>
+                                <th className="px-4 py-3 text-right">Dinero Entrante</th>
+                                <th className="px-4 py-3 text-right">Dinero Saliente</th>
+                                <th className="px-4 py-3 text-right">Balance Neto</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                            {resumenCuentas.length === 0 ? (
+                                <tr><td colSpan="7" className="p-6 text-center text-slate-400 italic">No hay cuentas registradas.</td></tr>
+                            ) : (
+                                resumenCuentas.map((c) => (
+                                    <tr key={c.id} className="hover:bg-slate-50 transition-colors">
+                                        <td className="px-4 py-3 font-bold text-slate-800">{c.alias}</td>
+                                        <td className="px-4 py-3 font-medium text-slate-600">{c.titular}</td>
+                                        <td className="px-4 py-3 font-mono text-slate-400">{c.banco} ({c.numero_cuenta || 'S/N'})</td>
+                                        <td className="px-4 py-3 text-right font-bold text-slate-500">Bs. {Number(c.saldo_inicial || 0).toFixed(2)}</td>
+                                        <td className="px-4 py-3 text-right font-bold text-emerald-600">Bs. {c.entrante.toFixed(2)}</td>
+                                        <td className="px-4 py-3 text-right font-bold text-red-500">Bs. {c.saliente.toFixed(2)}</td>
+                                        <td className={`px-4 py-3 text-right font-black ${c.neto >= 0 ? 'text-blue-600' : 'text-amber-600'}`}>
+                                            Bs. {c.neto.toFixed(2)}
+                                        </td>
+                                    </tr>
+                                ))
+                            )}
+                        </tbody>
+                    </table>
+                </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">

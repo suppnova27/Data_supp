@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { supabase } from '../../../lib/supabase';
 
 const SERVICIOS_REALES = [
@@ -19,6 +19,152 @@ const SUB_SERVICIOS_RUTINARIA = [
     'Otro (Especificar)'
 ];
 
+// Clave para el catálogo de servicios en localStorage
+const LS_KEY_SERVICIOS = 'ore_crm_servicios_catalogo';
+
+function cargarServiciosCatalogo() {
+    try {
+        const guardados = localStorage.getItem(LS_KEY_SERVICIOS);
+        const parseados = guardados ? JSON.parse(guardados) : [];
+        const todos = [...SERVICIOS_REALES];
+        parseados.forEach(s => { if (!todos.includes(s)) todos.push(s); });
+        return todos;
+    } catch {
+        return [...SERVICIOS_REALES];
+    }
+}
+
+function guardarNuevoServicio(nombre) {
+    try {
+        const guardados = localStorage.getItem(LS_KEY_SERVICIOS);
+        const lista = guardados ? JSON.parse(guardados) : [];
+        if (!lista.includes(nombre)) {
+            lista.push(nombre);
+            localStorage.setItem(LS_KEY_SERVICIOS, JSON.stringify(lista));
+        }
+    } catch {
+        // silencioso
+    }
+}
+
+function CreatableSelect({ label, options: initialOptions, value, onChange, placeholder, onAddNewOption }) {
+    const [isOpen, setIsOpen] = useState(false);
+    const [search, setSearch] = useState('');
+    const [options, setOptions] = useState(initialOptions);
+    const containerRef = useRef(null);
+
+    useEffect(() => {
+        setOptions(initialOptions);
+    }, [initialOptions]);
+
+    useEffect(() => {
+        function handleClickOutside(event) {
+            if (containerRef.current && !containerRef.current.contains(event.target)) {
+                setIsOpen(false);
+            }
+        }
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => document.removeEventListener("mousedown", handleClickOutside);
+    }, []);
+
+    const filteredOptions = options.filter(option =>
+        option.toLowerCase().includes(search.toLowerCase())
+    );
+
+    const handleSelect = (val) => {
+        onChange(val);
+        setSearch('');
+        setIsOpen(false);
+    };
+
+    const handleCreate = () => {
+        const trimmed = search.trim();
+        if (trimmed) {
+            if (!options.some(o => o.toLowerCase() === trimmed.toLowerCase())) {
+                const newOptions = [...options, trimmed];
+                setOptions(newOptions);
+                onAddNewOption(trimmed);
+            }
+            onChange(trimmed);
+            setSearch('');
+            setIsOpen(false);
+        }
+    };
+
+    const showCreateOption = search.trim() !== '' && !options.some(o => o.toLowerCase() === search.trim().toLowerCase());
+
+    return (
+        <div className="relative text-left w-full" ref={containerRef}>
+            <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest pl-1">{label}</label>
+            <div className="relative mt-1 w-full">
+                <div className="relative w-full">
+                    <input
+                        type="text"
+                        placeholder={placeholder}
+                        className="w-full border-2 border-slate-100 rounded-xl px-4 py-3 outline-none focus:border-[#0055af] font-bold text-slate-700 bg-white transition-colors pr-10"
+                        value={isOpen ? search : (value || '')}
+                        onChange={(e) => {
+                            setSearch(e.target.value);
+                            if (!isOpen) setIsOpen(true);
+                        }}
+                        onFocus={() => {
+                            setSearch(value || '');
+                            setIsOpen(true);
+                        }}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                                e.preventDefault();
+                                if (showCreateOption) {
+                                    handleCreate();
+                                } else if (filteredOptions.length > 0) {
+                                    handleSelect(filteredOptions[0]);
+                                }
+                            } else if (e.key === 'Escape') {
+                                setIsOpen(false);
+                            }
+                        }}
+                    />
+                    <button
+                        type="button"
+                        className="absolute inset-y-0 right-0 px-3 flex items-center text-slate-400 hover:text-slate-600 focus:outline-none"
+                        onClick={() => {
+                            if (!isOpen) setSearch(value || '');
+                            setIsOpen(!isOpen);
+                        }}
+                    >
+                        <span className="text-[10px]">{isOpen ? '▲' : '▼'}</span>
+                    </button>
+                </div>
+
+                {isOpen && (
+                    <div className="absolute z-[100] w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl max-h-48 overflow-y-auto">
+                        {filteredOptions.map((option, idx) => (
+                            <div
+                                key={idx}
+                                className={`p-2.5 text-xs cursor-pointer hover:bg-slate-50 transition-colors ${value === option ? 'bg-blue-50 font-bold text-[#0055af]' : 'text-slate-700'}`}
+                                onClick={() => handleSelect(option)}
+                            >
+                                {option}
+                            </div>
+                        ))}
+                        {showCreateOption && (
+                            <div
+                                className="p-2.5 text-xs cursor-pointer bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold border-t border-emerald-100 transition-colors flex items-center gap-1"
+                                onClick={handleCreate}
+                            >
+                                <span>✨ Añadir</span> <strong className="truncate max-w-[150px]">"{search.trim()}"</strong>
+                            </div>
+                        )}
+                        {filteredOptions.length === 0 && !showCreateOption && (
+                            <div className="p-2.5 text-xs text-slate-400 italic text-center">No hay opciones</div>
+                        )}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
+
 // Función auxiliar para obtener la fecha de hoy en formato YYYY-MM-DD
 const obtenerFechaHoy = () => new Date().toISOString().split('T')[0];
 
@@ -28,9 +174,11 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
     const [personal, setPersonal] = useState([]);
     const [cuentas, setCuentas] = useState([]);
     const [productos, setProductos] = useState([]);
+    const [catalogoServicios, setCatalogoServicios] = useState([]);
+    const [proyectoRelacionadoId, setProyectoRelacionadoId] = useState('');
 
     const [formData, setFormData] = useState({
-        fecha_registro: obtenerFechaHoy(), // <-- Nuevo campo
+        fecha_registro: obtenerFechaHoy(),
         tipo: 'Gasto', categoria: '', concepto: '', monto: '', cliente_id: '',
         servicio: SERVICIOS_REALES[0], sub_servicio: SUB_SERVICIOS_RUTINARIA[0],
         servicio_manual: '', sub_servicio_manual: '',
@@ -42,6 +190,7 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
     useEffect(() => {
         if (isOpen) {
             cargarDatosBasicos();
+            setCatalogoServicios(cargarServiciosCatalogo());
 
             if (finanzaEditando) {
                 let servicioBase = finanzaEditando.servicio || '';
@@ -60,9 +209,20 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
                         subServ = 'Otro (Especificar)';
                         subManual = subExtraido;
                     }
-                } else if (!SERVICIOS_REALES.includes(servicioBase) && servicioBase !== '' && finanzaEditando.cliente_id !== null) {
+                } else if (!SERVICIOS_REALES.includes(servicioBase) && servicioBase !== '' && finanzaEditando.cliente_id !== null && !servicioBase.toLowerCase().startsWith('sueldo:')) {
                     servManual = servicioBase;
                     servicioBase = '✨ Otro (Especificar)';
+                }
+
+                const esPagoPersonal = finanzaEditando.tipo === 'Gasto' && (
+                    finanzaEditando.categoria === 'Nómina y Salarios' || 
+                    (finanzaEditando.servicio && finanzaEditando.servicio.toLowerCase().startsWith('sueldo:'))
+                );
+
+                let cid = finanzaEditando.cliente_id || '';
+                if (esPagoPersonal) {
+                    setProyectoRelacionadoId(finanzaEditando.cliente_id || '');
+                    cid = 'pago-personal';
                 }
 
                 setFormData({
@@ -71,7 +231,7 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
                     categoria: finanzaEditando.categoria || '',
                     concepto: finanzaEditando.concepto,
                     monto: finanzaEditando.monto,
-                    cliente_id: finanzaEditando.cliente_id || '',
+                    cliente_id: cid,
                     servicio: servicioBase,
                     sub_servicio: subServ,
                     servicio_manual: servManual,
@@ -83,6 +243,7 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
                     cuenta_id: finanzaEditando.cuenta_id || ''
                 });
             } else {
+                setProyectoRelacionadoId('');
                 setFormData({
                     fecha_registro: obtenerFechaHoy(), // <-- Reset a hoy al crear nuevo
                     tipo: 'Gasto', categoria: '', concepto: '', monto: '', cliente_id: '',
@@ -96,7 +257,7 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
     }, [isOpen, finanzaEditando]);
 
     const cargarDatosBasicos = async () => {
-        const { data: dataClientes } = await supabase.from('clientes').select('id, nombres').eq('cerrado', false);
+        const { data: dataClientes } = await supabase.from('clientes').select('id, nombres').order('nombres', { ascending: true });
         if (dataClientes) setClientes(dataClientes);
         const { data: dataPersonal } = await supabase.from('directorio_cuentas').select('*').eq('tipo', 'Personal');
         if (dataPersonal) setPersonal(dataPersonal);
@@ -146,8 +307,8 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
             cuenta_id: formData.cuenta_id || null
         };
 
-        if (datosParaSupabase.cliente_id === 'pago-personal') {
-            datosParaSupabase.cliente_id = null;
+        if (formData.cliente_id === 'pago-personal') {
+            datosParaSupabase.cliente_id = proyectoRelacionadoId ? proyectoRelacionadoId : null;
             datosParaSupabase.categoria = 'Nómina y Salarios';
         }
 
@@ -257,28 +418,43 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
                                     {clientes.map(c => <option key={c.id} value={c.id}>{c.nombres}</option>)}
                                 </select>
                             </div>
-
                             {formData.cliente_id === 'pago-personal' ? (
-                                <div className="flex flex-col gap-1.5">
-                                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest pl-1">Seleccionar Empleado</label>
-                                    <select onChange={e => {
-                                        const emp = personal.find(p => p.id === e.target.value);
-                                        if (emp) setFormData({ ...formData, servicio: `Sueldo: ${emp.titular}`, banco: emp.banco, numero_cuenta: emp.numero_cuenta, titular: emp.titular });
-                                    }} className="border-2 border-slate-100 rounded-xl px-4 py-3 text-sm font-bold bg-white outline-none focus:border-[#0055af]">
-                                        <option value="">-- Seleccionar Empleado --</option>
-                                        {personal.map(emp => <option key={emp.id} value={emp.id}>{emp.titular}</option>)}
-                                    </select>
+                                <div className="flex flex-col gap-4 w-full">
+                                    <div className="flex flex-col gap-1.5 w-full">
+                                        <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest pl-1">Seleccionar Empleado</label>
+                                        <select onChange={e => {
+                                            const emp = personal.find(p => p.id === e.target.value);
+                                            if (emp) setFormData({ ...formData, servicio: `Sueldo: ${emp.titular}`, banco: emp.banco, numero_cuenta: emp.numero_cuenta, titular: emp.titular });
+                                        }} className="border-2 border-slate-100 rounded-xl px-4 py-3 text-sm font-bold bg-white outline-none focus:border-[#0055af] w-full">
+                                            <option value="">-- Seleccionar Empleado --</option>
+                                            {personal.map(emp => <option key={emp.id} value={emp.id}>{emp.titular}</option>)}
+                                        </select>
+                                    </div>
+                                    <div className="flex flex-col gap-1.5 w-full">
+                                        <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest pl-1">Vincular a Proyecto / Cliente (Opcional)</label>
+                                        <select
+                                            value={proyectoRelacionadoId}
+                                            onChange={e => setProyectoRelacionadoId(e.target.value)}
+                                            className="border-2 border-slate-100 rounded-xl px-4 py-3 text-sm font-bold bg-white outline-none focus:border-[#0055af] w-full"
+                                        >
+                                            <option value="">-- Ninguno / Gasto General --</option>
+                                            {clientes.map(c => <option key={c.id} value={c.id}>{c.nombres}</option>)}
+                                        </select>
+                                    </div>
                                 </div>
                             ) : (
-                                <div className="flex flex-col gap-1.5">
-                                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest pl-1">Servicio Realizado</label>
-                                    <select value={formData.servicio} onChange={e => setFormData({ ...formData, servicio: e.target.value })} className="border-2 border-slate-100 rounded-xl px-4 py-3 text-sm font-bold bg-white outline-none focus:border-[#0055af]">
-                                        {SERVICIOS_REALES.map(s => <option key={s} value={s}>{s}</option>)}
-                                    </select>
-
-                                    {formData.servicio === '✨ Otro (Especificar)' && (
-                                        <input type="text" placeholder="Escribe el servicio aquí..." required className="border-2 border-emerald-200 bg-emerald-50 rounded-xl px-4 py-2 text-sm font-bold outline-none focus:border-emerald-500 animate-in slide-in-from-top-2" value={formData.servicio_manual} onChange={e => setFormData({ ...formData, servicio_manual: e.target.value })} />
-                                    )}
+                                <div className="flex flex-col gap-3 w-full">
+                                    <CreatableSelect
+                                        label="Servicio Realizado"
+                                        options={catalogoServicios}
+                                        value={formData.servicio}
+                                        onChange={(val) => setFormData({ ...formData, servicio: val })}
+                                        placeholder="-- Seleccionar o Escribir --"
+                                        onAddNewOption={(newOpt) => {
+                                            guardarNuevoServicio(newOpt);
+                                            setCatalogoServicios(cargarServiciosCatalogo());
+                                        }}
+                                    />
 
                                     {formData.servicio === '🧹 Limpieza Rutinaria' && (
                                         <div className="flex flex-col gap-2 animate-in slide-in-from-top-2">

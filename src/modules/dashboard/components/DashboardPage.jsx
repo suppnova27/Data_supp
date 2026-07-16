@@ -97,7 +97,7 @@ export default function DashboardPage() {
                 <div className="absolute -left-20 -bottom-20 w-64 h-64 bg-[#ffdd1c] opacity-20 rounded-full blur-3xl"></div>
                 <div className="relative z-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                     <div>
-                        <h1 className="text-3xl md:text-4xl font-black tracking-tight mb-2 text-white">Resumen Ejecutivo</h1>
+                        <h1 className="text-3xl md:text-4xl font-black tracking-tight mb-2 text-white">Resumen Ejecu</h1>
                         <p className="text-blue-200 font-medium max-w-xl text-sm md:text-base">
                             Monitoreo en tiempo real de operaciones, finanzas e inventario.
                         </p>
