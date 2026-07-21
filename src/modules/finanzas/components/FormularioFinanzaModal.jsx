@@ -165,8 +165,15 @@ function CreatableSelect({ label, options: initialOptions, value, onChange, plac
     );
 }
 
-// Función auxiliar para obtener la fecha de hoy en formato YYYY-MM-DD
-const obtenerFechaHoy = () => new Date().toISOString().split('T')[0];
+// Función auxiliar para obtener la fecha de hoy en formato YYYY-MM-DD (local)
+const obtenerFechaHoy = () => {
+    const d = new Date();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+};
+
 
 export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, finanzaEditando }) {
     const [guardando, setGuardando] = useState(false);

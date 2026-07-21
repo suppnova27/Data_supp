@@ -181,65 +181,89 @@ export default function ClientesPage() {
                                     <span className="bg-white text-slate-800 font-black text-xs px-3 py-1 rounded-full shadow-sm border border-slate-200/50">{leadsDeColumna.length}</span>
                                 </div>
 
-                                <div className="flex flex-col gap-4 max-h-[66vh] overflow-y-auto pr-2 custom-scrollbar min-h-[180px]">
+                                <div className="flex flex-col gap-4 max-h-[calc(100vh-280px)] min-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
                                     {leadsDeColumna.length === 0 ? (
                                         <div className="text-center py-12 text-slate-400 text-xs italic bg-white/40 border-2 border-dashed border-slate-200 rounded-2xl animate-in fade-in duration-300">No hay prospectos en esta fase</div>
                                     ) : (
                                         leadsDeColumna.map(c => (
-                                            <div key={c.id} className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100 hover:border-slate-200 hover:shadow-xl hover:shadow-[#0055af]/10 hover:-translate-y-1.5 transition-all duration-300 flex flex-col gap-4 relative overflow-hidden group animate-in fade-in slide-in-from-bottom-4 duration-300">
+                                            <div key={c.id} className="bg-white rounded-3xl p-5 shadow-sm border border-slate-200 hover:border-[#0055af]/30 hover:shadow-xl hover:shadow-[#0055af]/10 hover:-translate-y-1 transition-all duration-300 flex flex-col gap-3.5 relative overflow-hidden group shrink-0 animate-in fade-in slide-in-from-bottom-4 duration-300">
 
-                                                <div className={`absolute top-0 left-0 right-0 h-1.5 transition-all duration-300
+                                                <div className={`absolute top-0 left-0 right-0 h-2 transition-all duration-300
                                                     ${columna === 'Nuevo Lead' ? 'bg-[#ffdd1c]' :
                                                         columna === 'En negociación' ? 'bg-purple-500' :
                                                             columna === 'Cotización enviada' ? 'bg-[#0055af]' : 'bg-slate-400'}`} />
 
-                                                <div className="flex justify-between items-start gap-2 mt-1">
-                                                    <div className="flex flex-col gap-1 max-w-[60%]">
-                                                        <h4 className="font-black text-slate-800 text-lg tracking-tight leading-tight group-hover:text-[#0055af] transition-colors">{c.nombres}</h4>
-                                                        <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2.5 py-1 rounded-full w-max flex items-center gap-1.5 mt-0.5">
-                                                            <span>📱</span> {c.telefono}
-                                                        </span>
+                                                {/* ENCABEZADO DE LA FICHA: NOMBRE Y ETIQUETA */}
+                                                <div className="flex justify-between items-start gap-3 mt-1.5">
+                                                    <div className="flex flex-col gap-1.5 flex-1 min-w-0">
+                                                        <h4 className="font-black text-slate-800 text-base md:text-lg tracking-tight leading-snug break-words group-hover:text-[#0055af] transition-colors">
+                                                            {c.nombres} {c.apellido_paterno || ''}
+                                                        </h4>
+                                                        <a href={`tel:${c.telefono}`} className="text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 px-3 py-1 rounded-xl w-fit flex items-center gap-1.5 border border-slate-200/60 transition-colors">
+                                                            <span>📱</span> {c.telefono || 'Sin teléfono'}
+                                                        </a>
                                                     </div>
-                                                    <span className="text-[9px] bg-[#0055af]/5 text-[#0055af] px-3 py-1.5 rounded-full font-black uppercase tracking-widest border border-[#0055af]/20 shrink-0 truncate max-w-[40%] text-center shadow-sm">
+                                                    <span className="text-xs font-black bg-blue-50 text-[#0055af] px-3 py-1 rounded-xl border border-blue-200/60 shrink-0 whitespace-nowrap shadow-sm">
                                                         {c.etiqueta || '✨ Residencial'}
                                                     </span>
                                                 </div>
 
-                                                <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 flex items-center gap-2.5 text-xs font-bold text-slate-700 shadow-inner">
-                                                    <span className="truncate">{c.trabajo_realizado || '💼 Por definir'}</span>
+                                                {/* SERVICIO REALIZADO / REQUERIDO (SIN RECORTAR) */}
+                                                <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200/60 text-xs font-bold text-slate-700 flex items-start gap-2 shadow-inner leading-relaxed break-words">
+                                                    <span className="text-base shrink-0">💼</span>
+                                                    <span className="flex-1">{c.trabajo_realizado || 'Servicio por definir'}</span>
                                                 </div>
 
+                                                {/* NOTAS DE IA (Lector completo sin amputar texto) */}
                                                 {c.resumen_bot && (
-                                                    <div className="text-[10px] bg-[#0055af]/5 border border-[#0055af]/20 text-slate-600 p-3 rounded-2xl font-semibold leading-relaxed shadow-sm">
-                                                        <span className="font-black text-[#0055af] block mb-1 uppercase tracking-wider text-[8px]">🤖 Notas de IA:</span>
-                                                        <p className="line-clamp-2">{c.resumen_bot}</p>
+                                                    <div className="text-xs bg-indigo-50/60 border border-indigo-100 text-slate-700 p-3 rounded-2xl font-medium leading-relaxed shadow-sm">
+                                                        <span className="font-black text-indigo-700 block mb-1 uppercase tracking-wider text-[10px]">🤖 Notas de IA:</span>
+                                                        <p className="break-words">{c.resumen_bot}</p>
                                                     </div>
                                                 )}
 
-                                                {/* CONTROLES INFERIORES REDISEÑADOS PREMIUM */}
-                                                <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4 mt-1">
+                                                {/* CONTROLES INFERIORES PROPORCIONALES Y LEGIBLES */}
+                                                <div className="flex flex-col gap-2.5 border-t border-slate-100 pt-3.5 mt-1">
 
-                                                    {/* DESPLEGABLE ESTADO REDISEÑADO */}
-                                                    <div className="relative flex-1 min-w-[130px]">
+                                                    {/* SELECCIÓN DE ESTADO FÁCIL DE USAR */}
+                                                    <div className="relative w-full">
                                                         <select
                                                             value={c.estado}
                                                             onChange={e => cambiarEstadoKanban(c.id, e.target.value)}
-                                                            className="w-full appearance-none bg-slate-50 border-2 border-slate-100 hover:border-[#0055af]/40 focus:border-[#0055af] text-[#0055af] font-black text-[9px] uppercase tracking-wider px-4 py-2.5 rounded-full outline-none cursor-pointer transition-all shadow-sm"
+                                                            className="w-full bg-slate-50 border-2 border-slate-200 hover:border-[#0055af]/50 focus:border-[#0055af] text-[#0055af] font-black text-xs uppercase tracking-wider px-4 py-2.5 rounded-xl outline-none cursor-pointer transition-all shadow-sm pr-8"
                                                         >
                                                             {COLUMNAS_KANBAN.map(opt => <option key={opt} value={opt}>{opt}</option>)}
                                                         </select>
-                                                        {/* Flecha personalizada para ocultar la fea del navegador */}
                                                         <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-[#0055af] font-black text-xs">
                                                             ▼
                                                         </div>
                                                     </div>
 
-                                                    <div className="flex gap-2 shrink-0">
-                                                        <button onClick={() => abrirModal(c)} className="px-4 py-2.5 bg-[#0055af] text-white hover:bg-[#ffdd1c] hover:text-[#0055af] rounded-full font-black text-[9px] uppercase tracking-wider transition-all duration-300 shadow-md shadow-[#0055af]/20 active:scale-95">
-                                                            Ficha
+                                                    {/* BOTONES DE ACCIÓN VISIBLES Y PROPORCIONALES */}
+                                                    <div className="flex items-center gap-2 w-full">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => abrirModal(c)}
+                                                            className="flex-1 py-2.5 px-3 bg-[#0055af] hover:bg-[#003d80] text-white rounded-xl font-black text-xs uppercase tracking-wider transition-all shadow-md shadow-[#0055af]/20 active:scale-95 flex items-center justify-center gap-1.5"
+                                                        >
+                                                            <span>📄</span> Ver Ficha
                                                         </button>
-                                                        <button onClick={() => setCerrandoId(c.id)} className="px-4 py-2.5 bg-[#0055af] text-white hover:bg-[#ffdd1c] hover:text-[#0055af] rounded-full font-black text-[9px] uppercase tracking-wider transition-all duration-300 shadow-md shadow-[#0055af]/20 active:scale-95">
-                                                            📦 Archivar
+
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setCerrandoId(c.id)}
+                                                            className="flex-1 py-2.5 px-3 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-black text-xs uppercase tracking-wider transition-all shadow-md shadow-amber-500/20 active:scale-95 flex items-center justify-center gap-1.5"
+                                                        >
+                                                            <span>📦</span> Archivar
+                                                        </button>
+
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleEliminar(c.id, c.nombres)}
+                                                            className="p-2.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl font-bold text-xs transition-all border border-rose-200/80 shadow-sm shrink-0"
+                                                            title="Eliminar lead permanentemente"
+                                                        >
+                                                            🗑️
                                                         </button>
                                                     </div>
                                                 </div>

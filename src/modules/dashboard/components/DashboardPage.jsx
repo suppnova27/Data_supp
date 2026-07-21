@@ -59,9 +59,19 @@ export default function DashboardPage() {
         const añoActual = new Date().getFullYear();
 
         datos.finanzas.forEach(f => {
-            const fecha = new Date(f.fecha_registro);
-            if (fecha.getFullYear() === añoActual) {
-                const mesIndex = fecha.getMonth();
+            if (!f.fecha_registro) return;
+            const match = String(f.fecha_registro).match(/^(\d{4})-(\d{2})-(\d{2})/);
+            let anio, mesIndex;
+            if (match) {
+                anio = Number(match[1]);
+                mesIndex = Number(match[2]) - 1;
+            } else {
+                const fecha = new Date(f.fecha_registro);
+                anio = fecha.getFullYear();
+                mesIndex = fecha.getMonth();
+            }
+
+            if (anio === añoActual && mesIndex >= 0 && mesIndex < 12) {
                 if (f.tipo === 'Ingreso') dataMeses[mesIndex].ingresos += Number(f.monto);
                 if (f.tipo === 'Gasto') dataMeses[mesIndex].gastos += Number(f.monto);
             }
@@ -97,7 +107,7 @@ export default function DashboardPage() {
                 <div className="absolute -left-20 -bottom-20 w-64 h-64 bg-[#ffdd1c] opacity-20 rounded-full blur-3xl"></div>
                 <div className="relative z-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                     <div>
-                        <h1 className="text-3xl md:text-4xl font-black tracking-tight mb-2 text-white">Resumen Ejecu</h1>
+                        <h1 className="text-3xl md:text-4xl font-black tracking-tight mb-2 text-white">Resumen Ejecutivo</h1>
                         <p className="text-blue-200 font-medium max-w-xl text-sm md:text-base">
                             Monitoreo en tiempo real de operaciones, finanzas e inventario.
                         </p>
