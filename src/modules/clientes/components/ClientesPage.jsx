@@ -3,39 +3,21 @@ import { supabase } from '../../../lib/supabase';
 
 const COLUMNAS_KANBAN = ['Nuevo Lead', 'En negociación', 'Cotización enviada', 'No responde'];
 
-// Servicios por defecto (fallback si la BD está vacía)
-const SERVICIOS_POR_DEFECTO = [
-    '🧹 Limpieza Rutinaria',
-    '🏠 Limpieza Profunda Integral',
-    '🏗️ Limpieza Post Obra',
-    '🛋️ Desinfección de Muebles y Alfombras',
-    '🏢 Servicios Corporativos e Institucionales'
-];
-
-// Etiquetas por defecto (fallback si la BD está vacía)
-const ETIQUETAS_POR_DEFECTO = [
-    '✨ Residencial',
-    '🏬 Comercial',
-    '🔥 Alta Prioridad',
-    '⭐ Cliente Recurrente',
-    '📅 Fin de Semana'
-];
-
 async function cargarServiciosBD() {
     try {
         const { data, error } = await supabase
             .from('servicios')
-            .select('nombre')
-            .eq('activa', true)
+            .select('id, nombre, activa')
             .order('nombre', { ascending: true });
         
-        if (error || !data || data.length === 0) {
-            return SERVICIOS_POR_DEFECTO;
+        if (error) {
+            console.error('Error cargando servicios en Clientes:', error.message);
+            return [];
         }
-        
-        return data.map(s => s.nombre);
-    } catch {
-        return SERVICIOS_POR_DEFECTO;
+        return (data || []).filter(s => s.activa !== false).map(s => s.nombre);
+    } catch (e) {
+        console.error('Excepción cargando servicios en Clientes:', e);
+        return [];
     }
 }
 
@@ -43,17 +25,17 @@ async function cargarEtiquetasBD() {
     try {
         const { data, error } = await supabase
             .from('etiquetas')
-            .select('nombre')
-            .eq('activa', true)
+            .select('id, nombre, activa')
             .order('nombre', { ascending: true });
         
-        if (error || !data || data.length === 0) {
-            return ETIQUETAS_POR_DEFECTO;
+        if (error) {
+            console.error('Error cargando etiquetas en Clientes:', error.message);
+            return [];
         }
-        
-        return data.map(e => e.nombre);
-    } catch {
-        return ETIQUETAS_POR_DEFECTO;
+        return (data || []).filter(e => e.activa !== false).map(e => e.nombre);
+    } catch (e) {
+        console.error('Excepción cargando etiquetas en Clientes:', e);
+        return [];
     }
 }
 
@@ -101,8 +83,8 @@ export default function ClientesPage() {
                 nombres: '', 
                 apellido_paterno: '', 
                 telefono: '', 
-                trabajo_realizado: serviciosDisponibles[0] || SERVICIOS_POR_DEFECTO[0], 
-                etiqueta: etiquetasDisponibles[0] || ETIQUETAS_POR_DEFECTO[0], 
+                trabajo_realizado: serviciosDisponibles[0] || '', 
+                etiqueta: etiquetasDisponibles[0] || '', 
                 estado: 'Nuevo Lead' 
             });
             setEditandoId(null);

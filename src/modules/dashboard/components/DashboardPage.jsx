@@ -6,24 +6,28 @@ import {
 } from 'recharts';
 
 export default function DashboardPage() {
-    const [datos, setDatos] = useState({ clientes: [], finanzas: [], inventario: [] });
+    const [datos, setDatos] = useState({ clientes: [], finanzas: [], inventario: [], servicios: [], etiquetas: [] });
     const [cargando, setCargando] = useState(true);
 
-    const COLORES_PIE = ['#0055af', '#ffdd1c', '#10b981', '#f59e0b', '#8b5cf6', '#06b6d4'];
+    const COLORES_PIE = ['#0055af', '#ffdd1c', '#10b981', '#f59e0b', '#8b5cf6', '#06b6d4', '#ec4899', '#ef4444'];
 
     useEffect(() => {
         const cargarTodo = async () => {
             setCargando(true);
-            const [resClientes, resFinanzas, resInventario] = await Promise.all([
+            const [resClientes, resFinanzas, resInventario, resServicios, resEtiquetas] = await Promise.all([
                 supabase.from('clientes').select('*'),
-                supabase.from('finanzas').select('*, clientes(nombres)').order('fecha_registro', { ascending: false }),
-                supabase.from('inventario').select('*')
+                supabase.from('finanzas').select('*').order('fecha_registro', { ascending: false }),
+                supabase.from('inventario').select('*'),
+                supabase.from('servicios').select('id, nombre, etiqueta_id'),
+                supabase.from('etiquetas').select('id, nombre, color')
             ]);
 
             setDatos({
                 clientes: resClientes.data || [],
                 finanzas: resFinanzas.data || [],
-                inventario: resInventario.data || []
+                inventario: resInventario.data || [],
+                servicios: resServicios.data || [],
+                etiquetas: resEtiquetas.data || []
             });
             setCargando(false);
         };
@@ -52,6 +56,36 @@ export default function DashboardPage() {
             margen: ingresosTotales > 0 ? Math.round(((ingresosTotales - gastosTotales) / ingresosTotales) * 100) : 0
         };
     }, [datos]);
+
+    const ingresosPorServicio = useMemo(() => {
+        const mapa = {};
+        datos.finanzas.filter(f => f.tipo === 'Ingreso' && f.servicio).forEach(f => {
+            const nombre = f.servicio;
+            mapa[nombre] = (mapa[nombre] || 0) + Number(f.monto);
+        });
+        return Object.entries(mapa)
+            .map(([name, value]) => ({ name, value: Math.round(value) }))
+            .sort((a, b) => b.value - a.value)
+            .slice(0, 6);
+    }, [datos.finanzas]);
+
+    const ingresosPorEtiqueta = useMemo(() => {
+        const mapa = {};
+        const serviciosMap = {};
+        datos.servicios.forEach(s => { serviciosMap[s.nombre] = s.etiqueta_id; });
+        const etiquetasMap = {};
+        datos.etiquetas.forEach(e => { etiquetasMap[e.id] = e.nombre; });
+
+        datos.finanzas.filter(f => f.tipo === 'Ingreso' && f.servicio).forEach(f => {
+            const etiquetaId = serviciosMap[f.servicio];
+            const etiquetaNombre = etiquetaId ? (etiquetasMap[etiquetaId] || 'Sin Etiqueta') : 'Sin Etiqueta';
+            mapa[etiquetaNombre] = (mapa[etiquetaNombre] || 0) + Number(f.monto);
+        });
+        return Object.entries(mapa)
+            .map(([name, value]) => ({ name, value: Math.round(value) }))
+            .sort((a, b) => b.value - a.value)
+            .slice(0, 6);
+    }, [datos.finanzas, datos.servicios, datos.etiquetas]);
 
     const flujoDeCaja = useMemo(() => {
         const meses = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
@@ -156,7 +190,7 @@ export default function DashboardPage() {
                 </div>
             </div>
 
-            {/* SECCIÓN GRÁFICOS */}
+            {/* SECCIÓN GRÁFICOS FINANCIEROS */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
                 {/* GRÁFICO DE LÍNEAS */}
@@ -165,8 +199,8 @@ export default function DashboardPage() {
                         <span className="text-lg">📈</span> Rendimiento Financiero ({new Date().getFullYear()})
                     </h3>
 
-                    <div className="w-full h-[300px] min-w-0"> {/* 👈 min-w-0 añadido */}
-                        <ResponsiveContainer width="100%" height="100%" minWidth={0}> {/* 👈 minWidth={0} añadido */}
+                    <div className="w-full h-[300px] min-w-0">
+                        <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                             <LineChart data={flujoDeCaja} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
                                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                                 <XAxis dataKey="nombre" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#64748b', fontWeight: 'bold' }} />
@@ -183,16 +217,16 @@ export default function DashboardPage() {
                     </div>
                 </div>
 
-                {/* GRÁFICO CIRCULAR */}
+                {/* GRÁFICO EMBUDO */}
                 <div className="bg-white p-6 md:p-8 rounded-3xl border border-slate-100 shadow-sm flex flex-col min-w-0 overflow-hidden">
                     <h3 className="text-xs font-black text-[#0055af] uppercase tracking-widest mb-4 flex items-center gap-2">
                         <span className="text-lg">🎯</span> Embudo de Ventas
                     </h3>
-                    <div className="w-full h-[250px] flex justify-center mt-2 min-w-0"> {/* 👈 min-w-0 añadido */}
+                    <div className="w-full h-[250px] flex justify-center mt-2 min-w-0">
                         {embudoClientes.length === 0 ? (
                             <div className="flex h-full w-full items-center justify-center text-sm text-slate-400 font-bold italic">No hay clientes activos.</div>
                         ) : (
-                            <ResponsiveContainer width="100%" height="100%" minWidth={0}> {/* 👈 key eliminado, minWidth añadido */}
+                            <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                                 <PieChart>
                                     <Pie data={embudoClientes} cx="50%" cy="50%" innerRadius={70} outerRadius={90} paddingAngle={5} dataKey="value">
                                         {embudoClientes.map((entry, index) => (
@@ -201,6 +235,58 @@ export default function DashboardPage() {
                                     </Pie>
                                     <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', fontWeight: 'bold' }} formatter={(value) => `${value} prospectos`} />
                                     <Legend verticalAlign="bottom" iconType="circle" wrapperStyle={{ fontSize: '11px', fontWeight: 'bold' }} />
+                                </PieChart>
+                            </ResponsiveContainer>
+                        )}
+                    </div>
+                </div>
+            </div>
+
+            {/* SECCIÓN ANÁLISIS DE SERVICIOS Y ETIQUETAS */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+                {/* GRÁFICO INGRESOS POR SERVICIO */}
+                <div className="bg-white p-6 md:p-8 rounded-3xl border border-slate-100 shadow-sm flex flex-col min-w-0 overflow-hidden">
+                    <h3 className="text-xs font-black text-[#0055af] uppercase tracking-widest mb-4 flex items-center gap-2">
+                        <span className="text-lg">🧹</span> Ingresos por Servicio
+                    </h3>
+                    <div className="w-full h-[280px] flex justify-center min-w-0">
+                        {ingresosPorServicio.length === 0 ? (
+                            <div className="flex h-full w-full items-center justify-center text-sm text-slate-400 font-bold italic">Sin datos de servicios aún.</div>
+                        ) : (
+                            <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+                                <PieChart>
+                                    <Pie data={ingresosPorServicio} cx="50%" cy="50%" innerRadius={60} outerRadius={95} paddingAngle={3} dataKey="value" nameKey="name" label={({ name, percent }) => `${name.length > 15 ? name.slice(0, 15) + '…' : name} ${(percent * 100).toFixed(0)}%`} labelLine={false}>
+                                        {ingresosPorServicio.map((entry, index) => (
+                                            <Cell key={`cell-${index}`} fill={COLORES_PIE[index % COLORES_PIE.length]} stroke="none" />
+                                        ))}
+                                    </Pie>
+                                    <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', fontWeight: 'bold' }} formatter={(value) => `Bs. ${value.toLocaleString('es-BO')}`} />
+                                    <Legend verticalAlign="bottom" iconType="circle" wrapperStyle={{ fontSize: '10px', fontWeight: 'bold' }} />
+                                </PieChart>
+                            </ResponsiveContainer>
+                        )}
+                    </div>
+                </div>
+
+                {/* GRÁFICO INGRESOS POR ETIQUETA */}
+                <div className="bg-white p-6 md:p-8 rounded-3xl border border-slate-100 shadow-sm flex flex-col min-w-0 overflow-hidden">
+                    <h3 className="text-xs font-black text-[#0055af] uppercase tracking-widest mb-4 flex items-center gap-2">
+                        <span className="text-lg">🏷️</span> Ingresos por Etiqueta
+                    </h3>
+                    <div className="w-full h-[280px] flex justify-center min-w-0">
+                        {ingresosPorEtiqueta.length === 0 ? (
+                            <div className="flex h-full w-full items-center justify-center text-sm text-slate-400 font-bold italic">Sin datos de etiquetas aún.</div>
+                        ) : (
+                            <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+                                <PieChart>
+                                    <Pie data={ingresosPorEtiqueta} cx="50%" cy="50%" innerRadius={60} outerRadius={95} paddingAngle={3} dataKey="value" nameKey="name" label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`} labelLine={false}>
+                                        {ingresosPorEtiqueta.map((entry, index) => (
+                                            <Cell key={`cell-${index}`} fill={COLORES_PIE[index % COLORES_PIE.length]} stroke="none" />
+                                        ))}
+                                    </Pie>
+                                    <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', fontWeight: 'bold' }} formatter={(value) => `Bs. ${value.toLocaleString('es-BO')}`} />
+                                    <Legend verticalAlign="bottom" iconType="circle" wrapperStyle={{ fontSize: '10px', fontWeight: 'bold' }} />
                                 </PieChart>
                             </ResponsiveContainer>
                         )}

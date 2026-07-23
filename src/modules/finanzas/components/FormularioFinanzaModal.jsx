@@ -10,27 +10,20 @@ const SUB_SERVICIOS_RUTINARIA = [
     'Otro (Especificar)'
 ];
 
-// Servicios por defecto (fallback si la BD está vacía)
-const SERVICIOS_POR_DEFECTO = [
-    '🧹 Limpieza Rutinaria',
-    '🏠 Limpieza Profunda Integral',
-    '🏗️ Limpieza Post Obra',
-    '🛋️ Desinfección de Muebles y Alfombras',
-    '🏢 Servicios Corporativos',
-    '✨ Otro (Especificar)'
-];
-
 async function cargarEtiquetasBD() {
     try {
         const { data, error } = await supabase
             .from('etiquetas')
             .select('id, nombre, color')
-            .eq('activa', true)
             .order('nombre', { ascending: true });
         
-        if (error || !data) return [];
-        return data;
-    } catch {
+        if (error) {
+            console.error('Error cargando etiquetas:', error.message);
+            return [];
+        }
+        return (data || []).filter(e => e.activa !== false);
+    } catch (e) {
+        console.error('Excepción cargando etiquetas:', e);
         return [];
     }
 }
@@ -39,27 +32,29 @@ async function cargarServiciosBD(etiquetaId = null) {
     try {
         let query = supabase
             .from('servicios')
-            .select('id, nombre, etiqueta_id')
-            .eq('activa', true);
-        
-        if (etiquetaId) {
-            query = query.eq('etiqueta_id', etiquetaId);
-        }
+            .select('id, nombre, etiqueta_id, activa');
         
         const { data, error } = await query.order('nombre', { ascending: true });
         
-        if (error || !data || data.length === 0) {
-            return etiquetaId ? [] : SERVICIOS_POR_DEFECTO;
+        if (error) {
+            console.error('Error cargando servicios:', error.message);
+            return [];
+        }
+
+        let servicios = (data || []).filter(s => s.activa !== false);
+
+        if (etiquetaId) {
+            servicios = servicios.filter(s => s.etiqueta_id === etiquetaId);
         }
         
-        const nombres = data.map(s => s.nombre);
-        // Asegurar que "Otro (Especificar)" siempre esté
+        const nombres = servicios.map(s => s.nombre);
         if (!nombres.includes('✨ Otro (Especificar)')) {
             nombres.push('✨ Otro (Especificar)');
         }
         return nombres;
-    } catch {
-        return etiquetaId ? [] : SERVICIOS_POR_DEFECTO;
+    } catch (e) {
+        console.error('Excepción cargando servicios:', e);
+        return [];
     }
 }
 
@@ -205,7 +200,7 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
     const [formData, setFormData] = useState({
         fecha_registro: obtenerFechaHoy(),
         tipo: 'Gasto', categoria: '', concepto: '', monto: '', cliente_id: '',
-        servicio: SERVICIOS_POR_DEFECTO[0], sub_servicio: SUB_SERVICIOS_RUTINARIA[0],
+        servicio: '', sub_servicio: SUB_SERVICIOS_RUTINARIA[0],
         servicio_manual: '', sub_servicio_manual: '',
         banco: 'Efectivo', numero_cuenta: '', titular: '', id_operacion: '', cuenta_id: ''
     });
@@ -223,7 +218,12 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
         if (isOpen) {
             cargarDatosBasicos();
             cargarEtiquetasBD().then(data => setEtiquetas(data));
-            cargarServiciosBD().then(servicios => setCatalogoServicios(servicios));
+            cargarServiciosBD().then(servicios => {
+                setCatalogoServicios(servicios);
+                if (!finanzaEditando && servicios.length > 0) {
+                    setFormData(prev => ({ ...prev, servicio: servicios[0] }));
+                }
+            });
 
             if (finanzaEditando) {
                 let servicioBase = finanzaEditando.servicio || '';
@@ -242,7 +242,7 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
                         subServ = 'Otro (Especificar)';
                         subManual = subExtraido;
                     }
-                } else if (!SERVICIOS_POR_DEFECTO.includes(servicioBase) && servicioBase !== '' && finanzaEditando.cliente_id !== null && !servicioBase.toLowerCase().startsWith('sueldo:')) {
+                } else if (servicioBase !== '' && finanzaEditando.cliente_id !== null && !servicioBase.toLowerCase().startsWith('sueldo:')) {
                     servManual = servicioBase;
                     servicioBase = '✨ Otro (Especificar)';
                 }
@@ -278,9 +278,9 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
             } else {
                 setProyectoRelacionadoId('');
                 setFormData({
-                    fecha_registro: obtenerFechaHoy(), // <-- Reset a hoy al crear nuevo
+                    fecha_registro: obtenerFechaHoy(),
                     tipo: 'Gasto', categoria: '', concepto: '', monto: '', cliente_id: '',
-                    servicio: SERVICIOS_POR_DEFECTO[0], sub_servicio: SUB_SERVICIOS_RUTINARIA[0],
+                    servicio: '', sub_servicio: SUB_SERVICIOS_RUTINARIA[0],
                     servicio_manual: '', sub_servicio_manual: '',
                     banco: 'Efectivo', numero_cuenta: '', titular: '', id_operacion: '', cuenta_id: ''
                 });
