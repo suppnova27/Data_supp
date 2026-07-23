@@ -3,7 +3,8 @@ import { supabase } from '../../../lib/supabase';
 
 const COLUMNAS_KANBAN = ['Nuevo Lead', 'En negociación', 'Cotización enviada', 'No responde'];
 
-const SERVICIOS_REALES = [
+// Servicios por defecto (fallback si la BD está vacía)
+const SERVICIOS_POR_DEFECTO = [
     '🧹 Limpieza Rutinaria',
     '🏠 Limpieza Profunda Integral',
     '🏗️ Limpieza Post Obra',
@@ -11,13 +12,50 @@ const SERVICIOS_REALES = [
     '🏢 Servicios Corporativos e Institucionales'
 ];
 
-const ETIQUETAS_RUBRO = [
+// Etiquetas por defecto (fallback si la BD está vacía)
+const ETIQUETAS_POR_DEFECTO = [
     '✨ Residencial',
     '🏬 Comercial',
     '🔥 Alta Prioridad',
     '⭐ Cliente Recurrente',
     '📅 Fin de Semana'
 ];
+
+async function cargarServiciosBD() {
+    try {
+        const { data, error } = await supabase
+            .from('servicios')
+            .select('nombre')
+            .eq('activa', true)
+            .order('nombre', { ascending: true });
+        
+        if (error || !data || data.length === 0) {
+            return SERVICIOS_POR_DEFECTO;
+        }
+        
+        return data.map(s => s.nombre);
+    } catch {
+        return SERVICIOS_POR_DEFECTO;
+    }
+}
+
+async function cargarEtiquetasBD() {
+    try {
+        const { data, error } = await supabase
+            .from('etiquetas')
+            .select('nombre')
+            .eq('activa', true)
+            .order('nombre', { ascending: true });
+        
+        if (error || !data || data.length === 0) {
+            return ETIQUETAS_POR_DEFECTO;
+        }
+        
+        return data.map(e => e.nombre);
+    } catch {
+        return ETIQUETAS_POR_DEFECTO;
+    }
+}
 
 export default function ClientesPage() {
     const [clientes, setClientes] = useState([]);
@@ -30,8 +68,10 @@ export default function ClientesPage() {
 
     const [modalAbierto, setModalAbierto] = useState(false);
     const [guardando, setGuardando] = useState(false);
+    const [serviciosDisponibles, setServiciosDisponibles] = useState([]);
+    const [etiquetasDisponibles, setEtiquetasDisponibles] = useState([]);
     const [formData, setFormData] = useState({
-        nombres: '', apellido_paterno: '', telefono: '', trabajo_realizado: SERVICIOS_REALES[0], etiqueta: ETIQUETAS_RUBRO[0], estado: 'Nuevo Lead'
+        nombres: '', apellido_paterno: '', telefono: '', trabajo_realizado: '', etiqueta: '', estado: 'Nuevo Lead'
     });
     const [editandoId, setEditandoId] = useState(null);
 
@@ -45,14 +85,26 @@ export default function ClientesPage() {
         setCargando(false);
     };
 
-    useEffect(() => { fetchClientes(); }, []);
+    useEffect(() => { 
+        fetchClientes();
+        // Cargar servicios y etiquetas desde la BD
+        cargarServiciosBD().then(setServiciosDisponibles);
+        cargarEtiquetasBD().then(setEtiquetasDisponibles);
+    }, []);
 
     const abrirModal = (cliente = null) => {
         if (cliente) {
             setFormData({ ...cliente });
             setEditandoId(cliente.id);
         } else {
-            setFormData({ nombres: '', apellido_paterno: '', telefono: '', trabajo_realizado: SERVICIOS_REALES[0], etiqueta: ETIQUETAS_RUBRO[0], estado: 'Nuevo Lead' });
+            setFormData({ 
+                nombres: '', 
+                apellido_paterno: '', 
+                telefono: '', 
+                trabajo_realizado: serviciosDisponibles[0] || SERVICIOS_POR_DEFECTO[0], 
+                etiqueta: etiquetasDisponibles[0] || ETIQUETAS_POR_DEFECTO[0], 
+                estado: 'Nuevo Lead' 
+            });
             setEditandoId(null);
         }
         setModalAbierto(true);
@@ -123,12 +175,12 @@ export default function ClientesPage() {
 
                     <select value={filtroServicio} onChange={e => setFiltroServicio(e.target.value)} className="border-2 border-slate-100 rounded-full px-4 py-2.5 text-sm bg-white outline-none font-bold text-slate-600 shadow-sm cursor-pointer focus:border-[#0055af] focus:ring-4 focus:ring-[#0055af]/10 transition-all max-w-[200px] truncate">
                         <option value="Todos">Todos los Servicios</option>
-                        {SERVICIOS_REALES.map(s => <option key={s} value={s}>{s}</option>)}
+                        {serviciosDisponibles.map(s => <option key={s} value={s}>{s}</option>)}
                     </select>
 
                     <select value={filtroEtiqueta} onChange={e => setFiltroEtiqueta(e.target.value)} className="border-2 border-slate-100 rounded-full px-4 py-2.5 text-sm bg-white outline-none font-bold text-slate-600 shadow-sm cursor-pointer focus:border-[#0055af] focus:ring-4 focus:ring-[#0055af]/10 transition-all max-w-[200px] truncate">
                         <option value="Todos">Todas las Etiquetas</option>
-                        {ETIQUETAS_RUBRO.map(e => <option key={e} value={e}>{e}</option>)}
+                        {etiquetasDisponibles.map(e => <option key={e} value={e}>{e}</option>)}
                     </select>
 
                     <button onClick={() => abrirModal()} className="px-6 py-2.5 bg-[#0055af] text-white font-black rounded-full text-xs uppercase tracking-widest hover:bg-[#0055af] hover:-translate-y-1 shadow-lg shadow-[#0055af]/20 border-2 border-[#0055af] hover:border-[#ffdd1c] transition-all duration-300">
@@ -378,7 +430,7 @@ export default function ClientesPage() {
                                 <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider pl-1">Servicio de Interés</label>
                                 <div className="relative">
                                     <select className="w-full appearance-none border-2 border-slate-100 rounded-xl px-4 py-3 bg-slate-50 focus:bg-white font-bold text-xs text-slate-700 outline-none focus:border-[#0055af] focus:ring-4 focus:ring-[#0055af]/10 transition-all cursor-pointer" value={formData.trabajo_realizado} onChange={e => setFormData({ ...formData, trabajo_realizado: e.target.value })}>
-                                        {SERVICIOS_REALES.map(s => <option key={s} value={s}>{s}</option>)}
+                                        {serviciosDisponibles.map(s => <option key={s} value={s}>{s}</option>)}
                                     </select>
                                     <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400 text-xs">▼</div>
                                 </div>
@@ -387,7 +439,7 @@ export default function ClientesPage() {
                                 <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider pl-1">Etiqueta de Rubro</label>
                                 <div className="relative">
                                     <select className="w-full appearance-none border-2 border-slate-100 rounded-xl px-4 py-3 bg-slate-50 focus:bg-white font-bold text-xs text-slate-700 outline-none focus:border-[#0055af] focus:ring-4 focus:ring-[#0055af]/10 transition-all cursor-pointer" value={formData.etiqueta} onChange={e => setFormData({ ...formData, etiqueta: e.target.value })}>
-                                        {ETIQUETAS_RUBRO.map(e => <option key={e} value={e}>{e}</option>)}
+                                        {etiquetasDisponibles.map(e => <option key={e} value={e}>{e}</option>)}
                                     </select>
                                     <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400 text-xs">▼</div>
                                 </div>

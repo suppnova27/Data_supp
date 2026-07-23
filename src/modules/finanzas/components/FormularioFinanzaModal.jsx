@@ -20,16 +20,36 @@ const SERVICIOS_POR_DEFECTO = [
     '✨ Otro (Especificar)'
 ];
 
-async function cargarServiciosBD() {
+async function cargarEtiquetasBD() {
     try {
         const { data, error } = await supabase
-            .from('servicios')
-            .select('nombre')
+            .from('etiquetas')
+            .select('id, nombre, color')
             .eq('activa', true)
             .order('nombre', { ascending: true });
         
+        if (error || !data) return [];
+        return data;
+    } catch {
+        return [];
+    }
+}
+
+async function cargarServiciosBD(etiquetaId = null) {
+    try {
+        let query = supabase
+            .from('servicios')
+            .select('id, nombre, etiqueta_id')
+            .eq('activa', true);
+        
+        if (etiquetaId) {
+            query = query.eq('etiqueta_id', etiquetaId);
+        }
+        
+        const { data, error } = await query.order('nombre', { ascending: true });
+        
         if (error || !data || data.length === 0) {
-            return SERVICIOS_POR_DEFECTO;
+            return etiquetaId ? [] : SERVICIOS_POR_DEFECTO;
         }
         
         const nombres = data.map(s => s.nombre);
@@ -39,7 +59,7 @@ async function cargarServiciosBD() {
         }
         return nombres;
     } catch {
-        return SERVICIOS_POR_DEFECTO;
+        return etiquetaId ? [] : SERVICIOS_POR_DEFECTO;
     }
 }
 
@@ -177,6 +197,8 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
     const [personal, setPersonal] = useState([]);
     const [cuentas, setCuentas] = useState([]);
     const [productos, setProductos] = useState([]);
+    const [etiquetas, setEtiquetas] = useState([]);
+    const [etiquetaSeleccionada, setEtiquetaSeleccionada] = useState('');
     const [catalogoServicios, setCatalogoServicios] = useState([]);
     const [proyectoRelacionadoId, setProyectoRelacionadoId] = useState('');
 
@@ -190,9 +212,17 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
 
     const [consumo, setConsumo] = useState({ inventario_id: '', cantidad: 0 });
 
+    // Cargar servicios cuando cambia la etiqueta seleccionada
+    useEffect(() => {
+        if (isOpen) {
+            cargarServiciosBD(etiquetaSeleccionada || null).then(servicios => setCatalogoServicios(servicios));
+        }
+    }, [etiquetaSeleccionada, isOpen]);
+
     useEffect(() => {
         if (isOpen) {
             cargarDatosBasicos();
+            cargarEtiquetasBD().then(data => setEtiquetas(data));
             cargarServiciosBD().then(servicios => setCatalogoServicios(servicios));
 
             if (finanzaEditando) {
@@ -447,6 +477,25 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
                                 </div>
                             ) : (
                                 <div className="flex flex-col gap-3 w-full">
+                                    {etiquetas.length > 0 && (
+                                        <div className="flex flex-col gap-1.5">
+                                            <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest pl-1">Filtrar por Etiqueta</label>
+                                            <select 
+                                                value={etiquetaSeleccionada} 
+                                                onChange={e => {
+                                                    setEtiquetaSeleccionada(e.target.value);
+                                                    setFormData({ ...formData, servicio: '' });
+                                                }}
+                                                className="border-2 border-slate-100 rounded-xl px-4 py-3 text-sm font-bold bg-white outline-none focus:border-[#0055af]"
+                                            >
+                                                <option value="">-- Todas las etiquetas --</option>
+                                                {etiquetas.map(e => (
+                                                    <option key={e.id} value={e.id}>{e.nombre}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                    )}
+
                                     <CreatableSelect
                                         label="Servicio Realizado"
                                         options={catalogoServicios}
@@ -454,13 +503,14 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
                                         onChange={(val) => setFormData({ ...formData, servicio: val })}
                                         placeholder="-- Seleccionar o Escribir --"
                                         onAddNewOption={async (newOpt) => {
-                                            // Agregar nuevo servicio a la BD
+                                            // Agregar nuevo servicio a la BD con la etiqueta seleccionada
                                             await supabase.from('servicios').insert({ 
                                                 nombre: newOpt, 
+                                                etiqueta_id: etiquetaSeleccionada || null,
                                                 activa: true 
                                             });
                                             // Recargar catálogo desde BD
-                                            const servicios = await cargarServiciosBD();
+                                            const servicios = await cargarServiciosBD(etiquetaSeleccionada || null);
                                             setCatalogoServicios(servicios);
                                         }}
                                     />
