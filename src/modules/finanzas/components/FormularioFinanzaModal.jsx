@@ -1,15 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from '../../../lib/supabase';
 
-const SERVICIOS_REALES = [
-    '🧹 Limpieza Rutinaria',
-    '🏠 Limpieza Profunda Integral',
-    '🏗️ Limpieza Post Obra',
-    '🛋️ Desinfección de Muebles y Alfombras',
-    '🏢 Servicios Corporativos',
-    '✨ Otro (Especificar)'
-];
-
 const SUB_SERVICIOS_RUTINARIA = [
     'Lavado de sofá',
     'Lavado de sillas',
@@ -19,31 +10,36 @@ const SUB_SERVICIOS_RUTINARIA = [
     'Otro (Especificar)'
 ];
 
-// Clave para el catálogo de servicios en localStorage
-const LS_KEY_SERVICIOS = 'ore_crm_servicios_catalogo';
+// Servicios por defecto (fallback si la BD está vacía)
+const SERVICIOS_POR_DEFECTO = [
+    '🧹 Limpieza Rutinaria',
+    '🏠 Limpieza Profunda Integral',
+    '🏗️ Limpieza Post Obra',
+    '🛋️ Desinfección de Muebles y Alfombras',
+    '🏢 Servicios Corporativos',
+    '✨ Otro (Especificar)'
+];
 
-function cargarServiciosCatalogo() {
+async function cargarServiciosBD() {
     try {
-        const guardados = localStorage.getItem(LS_KEY_SERVICIOS);
-        const parseados = guardados ? JSON.parse(guardados) : [];
-        const todos = [...SERVICIOS_REALES];
-        parseados.forEach(s => { if (!todos.includes(s)) todos.push(s); });
-        return todos;
-    } catch {
-        return [...SERVICIOS_REALES];
-    }
-}
-
-function guardarNuevoServicio(nombre) {
-    try {
-        const guardados = localStorage.getItem(LS_KEY_SERVICIOS);
-        const lista = guardados ? JSON.parse(guardados) : [];
-        if (!lista.includes(nombre)) {
-            lista.push(nombre);
-            localStorage.setItem(LS_KEY_SERVICIOS, JSON.stringify(lista));
+        const { data, error } = await supabase
+            .from('servicios')
+            .select('nombre')
+            .eq('activa', true)
+            .order('nombre', { ascending: true });
+        
+        if (error || !data || data.length === 0) {
+            return SERVICIOS_POR_DEFECTO;
         }
+        
+        const nombres = data.map(s => s.nombre);
+        // Asegurar que "Otro (Especificar)" siempre esté
+        if (!nombres.includes('✨ Otro (Especificar)')) {
+            nombres.push('✨ Otro (Especificar)');
+        }
+        return nombres;
     } catch {
-        // silencioso
+        return SERVICIOS_POR_DEFECTO;
     }
 }
 
@@ -187,7 +183,7 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
     const [formData, setFormData] = useState({
         fecha_registro: obtenerFechaHoy(),
         tipo: 'Gasto', categoria: '', concepto: '', monto: '', cliente_id: '',
-        servicio: SERVICIOS_REALES[0], sub_servicio: SUB_SERVICIOS_RUTINARIA[0],
+        servicio: SERVICIOS_POR_DEFECTO[0], sub_servicio: SUB_SERVICIOS_RUTINARIA[0],
         servicio_manual: '', sub_servicio_manual: '',
         banco: 'Efectivo', numero_cuenta: '', titular: '', id_operacion: '', cuenta_id: ''
     });
@@ -197,7 +193,7 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
     useEffect(() => {
         if (isOpen) {
             cargarDatosBasicos();
-            setCatalogoServicios(cargarServiciosCatalogo());
+            cargarServiciosBD().then(servicios => setCatalogoServicios(servicios));
 
             if (finanzaEditando) {
                 let servicioBase = finanzaEditando.servicio || '';
@@ -216,7 +212,7 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
                         subServ = 'Otro (Especificar)';
                         subManual = subExtraido;
                     }
-                } else if (!SERVICIOS_REALES.includes(servicioBase) && servicioBase !== '' && finanzaEditando.cliente_id !== null && !servicioBase.toLowerCase().startsWith('sueldo:')) {
+                } else if (!SERVICIOS_POR_DEFECTO.includes(servicioBase) && servicioBase !== '' && finanzaEditando.cliente_id !== null && !servicioBase.toLowerCase().startsWith('sueldo:')) {
                     servManual = servicioBase;
                     servicioBase = '✨ Otro (Especificar)';
                 }
@@ -254,7 +250,7 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
                 setFormData({
                     fecha_registro: obtenerFechaHoy(), // <-- Reset a hoy al crear nuevo
                     tipo: 'Gasto', categoria: '', concepto: '', monto: '', cliente_id: '',
-                    servicio: SERVICIOS_REALES[0], sub_servicio: SUB_SERVICIOS_RUTINARIA[0],
+                    servicio: SERVICIOS_POR_DEFECTO[0], sub_servicio: SUB_SERVICIOS_RUTINARIA[0],
                     servicio_manual: '', sub_servicio_manual: '',
                     banco: 'Efectivo', numero_cuenta: '', titular: '', id_operacion: '', cuenta_id: ''
                 });
@@ -457,9 +453,15 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
                                         value={formData.servicio}
                                         onChange={(val) => setFormData({ ...formData, servicio: val })}
                                         placeholder="-- Seleccionar o Escribir --"
-                                        onAddNewOption={(newOpt) => {
-                                            guardarNuevoServicio(newOpt);
-                                            setCatalogoServicios(cargarServiciosCatalogo());
+                                        onAddNewOption={async (newOpt) => {
+                                            // Agregar nuevo servicio a la BD
+                                            await supabase.from('servicios').insert({ 
+                                                nombre: newOpt, 
+                                                activa: true 
+                                            });
+                                            // Recargar catálogo desde BD
+                                            const servicios = await cargarServiciosBD();
+                                            setCatalogoServicios(servicios);
                                         }}
                                     />
 
