@@ -14,6 +14,20 @@ const formatearFecha = (fechaStr) => {
     return isNaN(fecha.getTime()) ? '-' : fecha.toLocaleDateString('es-BO');
 };
 
+const parsearServicio = (servicioStr) => {
+    if (!servicioStr) return { servicio: '-', detalle: '-' };
+    const limpio = servicioStr.trim();
+    const matchRutinaria = limpio.match(/^🧹 Limpieza Rutinaria - (.+)$/i);
+    if (matchRutinaria) {
+        return { servicio: 'Limpieza Rutinaria', detalle: matchRutinaria[1] };
+    }
+    const idxGuion = limpio.indexOf(' - ');
+    if (idxGuion > 0) {
+        return { servicio: limpio.substring(0, idxGuion), detalle: limpio.substring(idxGuion + 3) };
+    }
+    return { servicio: limpio, detalle: '-' };
+};
+
 export default function FinanzasPage() {
     const [finanzas, setFinanzas] = useState([]);
     const [cargando, setCargando] = useState(true);
@@ -32,7 +46,33 @@ export default function FinanzasPage() {
             .select('*, clientes(nombres, apellido_paterno)')
             .order('fecha_registro', { ascending: false });
 
-        if (data) setFinanzas(data);
+        if (data) {
+            const finanzaIds = data.map(f => f.id);
+            let clientesMap = {};
+
+            if (finanzaIds.length > 0) {
+                const { data: fcData } = await supabase
+                    .from('finanza_clientes')
+                    .select('finanza_id, cliente_id, clientes(nombres, apellido_paterno)')
+                    .in('finanza_id', finanzaIds);
+
+                if (fcData) {
+                    fcData.forEach(fc => {
+                        if (!clientesMap[fc.finanza_id]) clientesMap[fc.finanza_id] = [];
+                        if (fc.clientes) {
+                            clientesMap[fc.finanza_id].push(fc.clientes);
+                        }
+                    });
+                }
+            }
+
+            const enriched = data.map(f => ({
+                ...f,
+                clientes_adicionales: clientesMap[f.id] || []
+            }));
+
+            setFinanzas(enriched);
+        }
         setCargando(false);
     };
 
@@ -64,9 +104,24 @@ export default function FinanzasPage() {
 
     const eliminarRegistro = async (id) => {
         if (window.confirm("¿Eliminar este registro financiero? Esta acción es irreversible.")) {
+            await supabase.from('finanza_clientes').delete().eq('finanza_id', id);
             await supabase.from('finanzas').delete().eq('id', id);
             fetchFinanzas();
         }
+    };
+
+    const obtenerNombresClientes = (f) => {
+        const todos = [];
+        if (f.clientes?.nombres) {
+            todos.push(`${f.clientes.nombres} ${f.clientes.apellido_paterno || ''}`.trim());
+        }
+        if (f.clientes_adicionales) {
+            f.clientes_adicionales.forEach(c => {
+                const nombre = `${c.nombres} ${c.apellido_paterno || ''}`.trim();
+                if (!todos.includes(nombre)) todos.push(nombre);
+            });
+        }
+        return todos.length > 0 ? todos : ['Gasto General / No asignado'];
     };
 
     const exportarExcel = () => {
@@ -76,9 +131,8 @@ export default function FinanzasPage() {
         }
 
         const datosFormateados = finanzasFiltradas.map(f => {
-            const clienteNom = f.clientes?.nombres 
-                ? `${f.clientes.nombres} ${f.clientes.apellido_paterno || ''}`.trim()
-                : 'Gasto General / No asignado';
+            const nombresClientes = obtenerNombresClientes(f).join(', ');
+            const { servicio, detalle } = parsearServicio(f.servicio);
 
             return {
                 'Fecha de Registro': formatearFecha(f.fecha_registro),
@@ -86,8 +140,9 @@ export default function FinanzasPage() {
                 'Categoría': f.categoria || '-',
                 'Detalle / Concepto': f.concepto || '-',
                 'Monto (Bs)': Number(f.monto),
-                'Lead / Cliente Relacionado': clienteNom,
-                'Servicio Realizado': f.servicio || '-',
+                'Lead / Cliente Relacionado': nombresClientes,
+                'Servicio': servicio,
+                'Detalle Servicio': detalle,
                 'Banco / Entidad': f.banco || 'Efectivo',
                 'Nro. Cuenta': f.numero_cuenta || '-',
                 'Titular Cuenta': f.titular || '-',
@@ -166,7 +221,18 @@ export default function FinanzasPage() {
                     }
                 }
 
-                const servicio = String(row['Servicio Realizado'] || row['Servicio'] || '');
+                const servicioCol = row['Servicio'] || '';
+                const detalleCol = row['Detalle Servicio'] || '';
+                const servicioLegacy = row['Servicio Realizado'] || '';
+                let servicio = '';
+                if (servicioCol && detalleCol && detalleCol !== '-') {
+                    servicio = `${servicioCol} - ${detalleCol}`;
+                } else if (servicioCol) {
+                    servicio = servicioCol;
+                } else {
+                    servicio = servicioLegacy;
+                }
+
                 const banco = String(row['Banco / Entidad'] || row['Banco'] || 'Efectivo');
                 const numero_cuenta = String(row['Nro. Cuenta'] || row['Nro Cuenta'] || row['Cuenta'] || '');
                 const titular = String(row['Titular Cuenta'] || row['Titular'] || '');
@@ -207,7 +273,6 @@ export default function FinanzasPage() {
 
     return (
         <div className="p-4 md:p-8 max-w-[98%] mx-auto flex flex-col gap-6 animate-in fade-in pb-20">
-            {/* Cabecera */}
             <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center bg-white p-8 rounded-3xl shadow-sm border border-slate-100 gap-6 relative overflow-hidden">
                 <div className="relative z-10">
                     <h1 className="text-3xl font-black text-[#0055af] tracking-tight">Gestión Financiera</h1>
@@ -238,7 +303,6 @@ export default function FinanzasPage() {
                 </div>
             </div>
 
-            {/* Resumen de Métricas */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 border-l-4 border-l-emerald-500">
                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Ingresos del Mes</p>
@@ -256,7 +320,6 @@ export default function FinanzasPage() {
                 </div>
             </div>
 
-            {/* Tabla de Historial con Filtros */}
             <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
                 <div className="p-5 border-b border-slate-100 bg-slate-50 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                     <div className="flex items-center gap-3">
@@ -314,37 +377,44 @@ export default function FinanzasPage() {
                                     <td colSpan="7" className="px-6 py-10 text-center text-slate-400 font-medium">No hay registros financieros en este período.</td>
                                 </tr>
                             ) : (
-                                finanzasFiltradas.map(f => (
-                                    <tr key={f.id} className="hover:bg-slate-50 transition-colors">
-                                        <td className="px-6 py-4 font-bold text-xs text-slate-700">
-                                            {formatearFecha(f.fecha_registro)}
-                                        </td>
-                                        <td className="px-6 py-4">
-                                            <div className="font-black text-slate-800 text-sm">{f.concepto}</div>
-                                            <div className="text-[9px] text-slate-400 font-bold uppercase mt-1">
-                                                {f.clientes?.nombres ? `${f.clientes.nombres} ${f.clientes.apellido_paterno || ''}` : f.servicio || 'General'}
-                                            </div>
-                                        </td>
-                                        <td className="px-6 py-4">
-                                            <div className="text-xs font-bold text-slate-700">{f.banco || 'Efectivo'}</div>
-                                            {f.numero_cuenta && <div className="text-[9px] text-slate-400 font-medium">{f.numero_cuenta}</div>}
-                                            {f.titular && <div className="text-[9px] text-slate-400 font-medium">{f.titular}</div>}
-                                        </td>
-                                        <td className="px-6 py-4">
-                                            <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase ${f.tipo === 'Ingreso' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
-                                                {f.tipo}
-                                            </span>
-                                        </td>
-                                        <td className="px-6 py-4 text-center font-mono text-[10px]">{f.id_operacion || '-'}</td>
-                                        <td className={`px-6 py-4 text-right font-black ${f.tipo === 'Ingreso' ? 'text-emerald-600' : 'text-rose-600'}`}>
-                                            Bs. {Number(f.monto).toLocaleString('es-BO', { minimumFractionDigits: 2 })}
-                                        </td>
-                                        <td className="px-6 py-4 text-center flex justify-center items-center gap-2">
-                                            <button onClick={() => abrirModal(f)} className="text-slate-300 hover:text-[#0055af] bg-transparent hover:bg-blue-50 p-2 rounded-full transition-all">✏️</button>
-                                            <button onClick={() => eliminarRegistro(f.id)} className="text-slate-300 hover:text-red-500 bg-transparent hover:bg-red-50 p-2 rounded-full transition-all">🗑️</button>
-                                        </td>
-                                    </tr>
-                                ))
+                                finanzasFiltradas.map(f => {
+                                    const nombresClientes = obtenerNombresClientes(f);
+                                    return (
+                                        <tr key={f.id} className="hover:bg-slate-50 transition-colors">
+                                            <td className="px-6 py-4 font-bold text-xs text-slate-700">
+                                                {formatearFecha(f.fecha_registro)}
+                                            </td>
+                                            <td className="px-6 py-4">
+                                                <div className="font-black text-slate-800 text-sm">{f.concepto}</div>
+                                                <div className="flex flex-wrap gap-1 mt-1">
+                                                    {nombresClientes.map((nom, idx) => (
+                                                        <span key={idx} className="text-[9px] font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">
+                                                            {nom}
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            </td>
+                                            <td className="px-6 py-4">
+                                                <div className="text-xs font-bold text-slate-700">{f.banco || 'Efectivo'}</div>
+                                                {f.numero_cuenta && <div className="text-[9px] text-slate-400 font-medium">{f.numero_cuenta}</div>}
+                                                {f.titular && <div className="text-[9px] text-slate-400 font-medium">{f.titular}</div>}
+                                            </td>
+                                            <td className="px-6 py-4">
+                                                <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase ${f.tipo === 'Ingreso' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
+                                                    {f.tipo}
+                                                </span>
+                                            </td>
+                                            <td className="px-6 py-4 text-center font-mono text-[10px]">{f.id_operacion || '-'}</td>
+                                            <td className={`px-6 py-4 text-right font-black ${f.tipo === 'Ingreso' ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                                Bs. {Number(f.monto).toLocaleString('es-BO', { minimumFractionDigits: 2 })}
+                                            </td>
+                                            <td className="px-6 py-4 text-center flex justify-center items-center gap-2">
+                                                <button onClick={() => abrirModal(f)} className="text-slate-300 hover:text-[#0055af] bg-transparent hover:bg-blue-50 p-2 rounded-full transition-all">✏️</button>
+                                                <button onClick={() => eliminarRegistro(f.id)} className="text-slate-300 hover:text-red-500 bg-transparent hover:bg-red-50 p-2 rounded-full transition-all">🗑️</button>
+                                            </td>
+                                        </tr>
+                                    );
+                                })
                             )}
                         </tbody>
                     </table>

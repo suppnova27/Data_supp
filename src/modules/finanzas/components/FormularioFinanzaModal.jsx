@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { supabase } from '../../../lib/supabase';
 
 const SUB_SERVICIOS_RUTINARIA = [
@@ -58,125 +58,6 @@ async function cargarServiciosBD(etiquetaId = null) {
     }
 }
 
-function CreatableSelect({ label, options: initialOptions, value, onChange, placeholder, onAddNewOption }) {
-    const [isOpen, setIsOpen] = useState(false);
-    const [search, setSearch] = useState('');
-    const [options, setOptions] = useState(initialOptions);
-    const containerRef = useRef(null);
-
-    useEffect(() => {
-        setOptions(initialOptions);
-    }, [initialOptions]);
-
-    useEffect(() => {
-        function handleClickOutside(event) {
-            if (containerRef.current && !containerRef.current.contains(event.target)) {
-                setIsOpen(false);
-            }
-        }
-        document.addEventListener("mousedown", handleClickOutside);
-        return () => document.removeEventListener("mousedown", handleClickOutside);
-    }, []);
-
-    const filteredOptions = options.filter(option =>
-        option.toLowerCase().includes(search.toLowerCase())
-    );
-
-    const handleSelect = (val) => {
-        onChange(val);
-        setSearch('');
-        setIsOpen(false);
-    };
-
-    const handleCreate = () => {
-        const trimmed = search.trim();
-        if (trimmed) {
-            if (!options.some(o => o.toLowerCase() === trimmed.toLowerCase())) {
-                const newOptions = [...options, trimmed];
-                setOptions(newOptions);
-                onAddNewOption(trimmed);
-            }
-            onChange(trimmed);
-            setSearch('');
-            setIsOpen(false);
-        }
-    };
-
-    const showCreateOption = search.trim() !== '' && !options.some(o => o.toLowerCase() === search.trim().toLowerCase());
-
-    return (
-        <div className="relative text-left w-full" ref={containerRef}>
-            <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest pl-1">{label}</label>
-            <div className="relative mt-1 w-full">
-                <div className="relative w-full">
-                    <input
-                        type="text"
-                        placeholder={placeholder}
-                        className="w-full border-2 border-slate-100 rounded-xl px-4 py-3 outline-none focus:border-[#0055af] font-bold text-slate-700 bg-white transition-colors pr-10"
-                        value={isOpen ? search : (value || '')}
-                        onChange={(e) => {
-                            setSearch(e.target.value);
-                            if (!isOpen) setIsOpen(true);
-                        }}
-                        onFocus={() => {
-                            setSearch(value || '');
-                            setIsOpen(true);
-                        }}
-                        onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                                e.preventDefault();
-                                if (showCreateOption) {
-                                    handleCreate();
-                                } else if (filteredOptions.length > 0) {
-                                    handleSelect(filteredOptions[0]);
-                                }
-                            } else if (e.key === 'Escape') {
-                                setIsOpen(false);
-                            }
-                        }}
-                    />
-                    <button
-                        type="button"
-                        className="absolute inset-y-0 right-0 px-3 flex items-center text-slate-400 hover:text-slate-600 focus:outline-none"
-                        onClick={() => {
-                            if (!isOpen) setSearch(value || '');
-                            setIsOpen(!isOpen);
-                        }}
-                    >
-                        <span className="text-[10px]">{isOpen ? '▲' : '▼'}</span>
-                    </button>
-                </div>
-
-                {isOpen && (
-                    <div className="absolute z-[100] w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl max-h-48 overflow-y-auto">
-                        {filteredOptions.map((option, idx) => (
-                            <div
-                                key={idx}
-                                className={`p-2.5 text-xs cursor-pointer hover:bg-slate-50 transition-colors ${value === option ? 'bg-blue-50 font-bold text-[#0055af]' : 'text-slate-700'}`}
-                                onClick={() => handleSelect(option)}
-                            >
-                                {option}
-                            </div>
-                        ))}
-                        {showCreateOption && (
-                            <div
-                                className="p-2.5 text-xs cursor-pointer bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold border-t border-emerald-100 transition-colors flex items-center gap-1"
-                                onClick={handleCreate}
-                            >
-                                <span>✨ Añadir</span> <strong className="truncate max-w-[150px]">"{search.trim()}"</strong>
-                            </div>
-                        )}
-                        {filteredOptions.length === 0 && !showCreateOption && (
-                            <div className="p-2.5 text-xs text-slate-400 italic text-center">No hay opciones</div>
-                        )}
-                    </div>
-                )}
-            </div>
-        </div>
-    );
-}
-
-// Función auxiliar para obtener la fecha de hoy en formato YYYY-MM-DD (local)
 const obtenerFechaHoy = () => {
     const d = new Date();
     const year = d.getFullYear();
@@ -196,6 +77,7 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
     const [etiquetaSeleccionada, setEtiquetaSeleccionada] = useState('');
     const [catalogoServicios, setCatalogoServicios] = useState([]);
     const [proyectoRelacionadoId, setProyectoRelacionadoId] = useState('');
+    const [clientesSeleccionados, setClientesSeleccionados] = useState([]);
 
     const [formData, setFormData] = useState({
         fecha_registro: obtenerFechaHoy(),
@@ -207,7 +89,6 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
 
     const [consumo, setConsumo] = useState({ inventario_id: '', cantidad: 0 });
 
-    // Cargar servicios cuando cambia la etiqueta seleccionada
     useEffect(() => {
         if (isOpen) {
             cargarServiciosBD(etiquetaSeleccionada || null).then(servicios => setCatalogoServicios(servicios));
@@ -259,7 +140,7 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
                 }
 
                 setFormData({
-                    fecha_registro: finanzaEditando.fecha_registro ? finanzaEditando.fecha_registro.split('T')[0] : obtenerFechaHoy(), // <-- Cargar fecha al editar
+                    fecha_registro: finanzaEditando.fecha_registro ? finanzaEditando.fecha_registro.split('T')[0] : obtenerFechaHoy(),
                     tipo: finanzaEditando.tipo,
                     categoria: finanzaEditando.categoria || '',
                     concepto: finanzaEditando.concepto,
@@ -275,8 +156,23 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
                     id_operacion: finanzaEditando.id_operacion || '',
                     cuenta_id: finanzaEditando.cuenta_id || ''
                 });
+
+                if (finanzaEditando.id) {
+                    const { data: fcData } = await supabase
+                        .from('finanza_clientes')
+                        .select('cliente_id')
+                        .eq('finanza_id', finanzaEditando.id);
+                    if (fcData && fcData.length > 0) {
+                        setClientesSeleccionados(fcData.map(fc => fc.cliente_id));
+                    } else if (finanzaEditando.cliente_id) {
+                        setClientesSeleccionados([finanzaEditando.cliente_id]);
+                    } else {
+                        setClientesSeleccionados([]);
+                    }
+                }
             } else {
                 setProyectoRelacionadoId('');
+                setClientesSeleccionados([]);
                 setFormData({
                     fecha_registro: obtenerFechaHoy(),
                     tipo: 'Gasto', categoria: '', concepto: '', monto: '', cliente_id: '',
@@ -312,6 +208,16 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
         }
     };
 
+    const toggleCliente = (clienteId) => {
+        setClientesSeleccionados(prev => {
+            if (prev.includes(clienteId)) {
+                return prev.filter(id => id !== clienteId);
+            } else {
+                return [...prev, clienteId];
+            }
+        });
+    };
+
     const handleSubmit = async (e) => {
         e.preventDefault();
         setGuardando(true);
@@ -325,13 +231,15 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
             }
         }
 
+        const primerClienteId = clientesSeleccionados.length > 0 ? clientesSeleccionados[0] : (formData.cliente_id || null);
+
         const datosParaSupabase = {
-            fecha_registro: formData.fecha_registro, // <-- Se envía la fecha seleccionada
+            fecha_registro: formData.fecha_registro,
             tipo: formData.tipo,
             categoria: formData.categoria,
             concepto: formData.concepto,
             monto: parseFloat(formData.monto),
-            cliente_id: formData.cliente_id || null,
+            cliente_id: primerClienteId,
             servicio: servicioFinal,
             banco: formData.banco,
             numero_cuenta: formData.numero_cuenta,
@@ -351,10 +259,29 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
         if (finanzaEditando) {
             const { error } = await supabase.from('finanzas').update(datosParaSupabase).eq('id', finanzaEditando.id);
             errFinanza = error;
+
+            if (!errFinanza) {
+                await supabase.from('finanza_clientes').delete().eq('finanza_id', finanzaEditando.id);
+                if (clientesSeleccionados.length > 0) {
+                    const registros = clientesSeleccionados.map(cid => ({
+                        finanza_id: finanzaEditando.id,
+                        cliente_id: cid
+                    }));
+                    await supabase.from('finanza_clientes').insert(registros);
+                }
+            }
         } else {
             const { data, error } = await supabase.from('finanzas').insert([datosParaSupabase]).select().single();
             nuevaFinanza = data;
             errFinanza = error;
+
+            if (!errFinanza && clientesSeleccionados.length > 0) {
+                const registros = clientesSeleccionados.map(cid => ({
+                    finanza_id: nuevaFinanza.id,
+                    cliente_id: cid
+                }));
+                await supabase.from('finanza_clientes').insert(registros);
+            }
 
             if (!errFinanza && formData.tipo === 'Gasto' && consumo.inventario_id) {
                 const producto = productos.find(p => p.id === consumo.inventario_id);
@@ -388,7 +315,6 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
                 <div className="p-6 overflow-y-auto custom-scrollbar">
                     <form id="form-finanzas" onSubmit={handleSubmit} className="flex flex-col gap-5">
 
-                        {/* PRIMERA FILA: Fecha, Tipo y Monto */}
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                             <div className="flex flex-col gap-1.5">
                                 <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest pl-1">Fecha</label>
@@ -496,24 +422,19 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
                                         </div>
                                     )}
 
-                                    <CreatableSelect
-                                        label="Servicio Realizado"
-                                        options={catalogoServicios}
-                                        value={formData.servicio}
-                                        onChange={(val) => setFormData({ ...formData, servicio: val })}
-                                        placeholder="-- Seleccionar o Escribir --"
-                                        onAddNewOption={async (newOpt) => {
-                                            // Agregar nuevo servicio a la BD con la etiqueta seleccionada
-                                            await supabase.from('servicios').insert({ 
-                                                nombre: newOpt, 
-                                                etiqueta_id: etiquetaSeleccionada || null,
-                                                activa: true 
-                                            });
-                                            // Recargar catálogo desde BD
-                                            const servicios = await cargarServiciosBD(etiquetaSeleccionada || null);
-                                            setCatalogoServicios(servicios);
-                                        }}
-                                    />
+                                    <div className="flex flex-col gap-1.5">
+                                        <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest pl-1">Servicio Realizado</label>
+                                        <select
+                                            value={formData.servicio}
+                                            onChange={e => setFormData({ ...formData, servicio: e.target.value })}
+                                            className="border-2 border-slate-100 rounded-xl px-4 py-3 text-sm font-bold bg-white outline-none focus:border-[#0055af]"
+                                        >
+                                            <option value="">-- Seleccionar Servicio --</option>
+                                            {catalogoServicios.map(s => (
+                                                <option key={s} value={s}>{s}</option>
+                                            ))}
+                                        </select>
+                                    </div>
 
                                     {formData.servicio === '🧹 Limpieza Rutinaria' && (
                                         <div className="flex flex-col gap-2 animate-in slide-in-from-top-2">
@@ -529,6 +450,33 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
                                 </div>
                             )}
                         </div>
+
+                        {formData.cliente_id !== 'pago-personal' && clientes.length > 0 && (
+                            <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200">
+                                <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest pl-1 block mb-2">Clientes Relacionados (múltiples)</label>
+                                <div className="flex flex-wrap gap-2">
+                                    {clientes.map(c => (
+                                        <button
+                                            key={c.id}
+                                            type="button"
+                                            onClick={() => toggleCliente(c.id)}
+                                            className={`px-3 py-1.5 rounded-full text-[10px] font-bold border transition-all ${
+                                                clientesSeleccionados.includes(c.id)
+                                                    ? 'bg-[#0055af] text-white border-[#0055af]'
+                                                    : 'bg-white text-slate-500 border-slate-200 hover:border-[#0055af] hover:text-[#0055af]'
+                                            }`}
+                                        >
+                                            {c.nombres}
+                                        </button>
+                                    ))}
+                                </div>
+                                {clientesSeleccionados.length > 0 && (
+                                    <p className="text-[9px] text-slate-400 mt-2 font-medium">
+                                        {clientesSeleccionados.length} cliente(s) seleccionado(s)
+                                    </p>
+                                )}
+                            </div>
+                        )}
                     </form>
                 </div>
 
