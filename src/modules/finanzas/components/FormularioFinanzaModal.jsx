@@ -158,17 +158,19 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
                 });
 
                 if (finanzaEditando.id) {
-                    const { data: fcData } = await supabase
-                        .from('finanza_clientes')
-                        .select('cliente_id')
-                        .eq('finanza_id', finanzaEditando.id);
-                    if (fcData && fcData.length > 0) {
-                        setClientesSeleccionados(fcData.map(fc => fc.cliente_id));
-                    } else if (finanzaEditando.cliente_id) {
-                        setClientesSeleccionados([finanzaEditando.cliente_id]);
-                    } else {
-                        setClientesSeleccionados([]);
-                    }
+                    (async () => {
+                        const { data: fcData } = await supabase
+                            .from('finanza_clientes')
+                            .select('cliente_id')
+                            .eq('finanza_id', finanzaEditando.id);
+                        if (fcData && fcData.length > 0) {
+                            setClientesSeleccionados(fcData.map(fc => fc.cliente_id));
+                        } else if (finanzaEditando.cliente_id) {
+                            setClientesSeleccionados([finanzaEditando.cliente_id]);
+                        } else {
+                            setClientesSeleccionados([]);
+                        }
+                    })();
                 }
             } else {
                 setProyectoRelacionadoId('');
