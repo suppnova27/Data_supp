@@ -2,10 +2,12 @@
 @tailwind components;
 @tailwind utilities;
 
+/* FORZAR LA BARRA PARA EVITAR EL SALTO (LAYOUT SHIFT) QUE CAUSA EL TEMBLOR */
 html {
     overflow-y: scroll;
 }
 
+/* DISEÑO CORPORATIVO PARA LA BARRA DE DESPLAZAMIENTO (SCROLLBAR) */
 .custom-scrollbar::-webkit-scrollbar {
     width: 8px;
     height: 8px;
@@ -17,13 +19,13 @@ html {
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb {
-    background: #341645;
+    background: #0055af;
     border-radius: 10px;
     border: 2px solid #f1f5f9;
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-    background: #c9a84c;
+    background: #ffdd1c;
 }
 
 .custom-scrollbar::-webkit-scrollbar-button {

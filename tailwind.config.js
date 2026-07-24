@@ -7,30 +7,24 @@ export default {
   theme: {
     extend: {
       colors: {
-        brand: {
-          50: '#f5f0f8',
-          100: '#e8ddf0',
-          200: '#d4bfe0',
-          300: '#b494c8',
-          400: '#8e6aad',
-          500: '#6b4590',
-          600: '#4a1a5e',
-          700: '#341645',
-          800: '#2a1038',
-          900: '#1a0a25',
+        // "Secuestramos" el color blue predeterminado de Tailwind
+        blue: {
+          50: '#ebf4ff',
+          100: '#cce3ff',
+          400: '#3385ff',
+          500: '#0066cc',
+          600: '#0055af', // <-- Tu Azul Corporativo ORE (Afecta a todos los botones principales)
+          700: '#003d80',
         },
-        gold: {
-          50: '#fdf9ed',
-          100: '#f8eece',
-          200: '#f0dc9a',
-          300: '#e8d48b',
-          400: '#d4b45e',
-          500: '#c9a84c',
-          600: '#b08a2e',
-          700: '#8c6d24',
-          800: '#6b531c',
-          900: '#4a3a14',
-        },
+        // "Secuestramos" el color amber/yellow para tus acentos e íconos de marca
+        amber: {
+          50: '#fffdf0',
+          100: '#fff9cc',
+          400: '#ffe866',
+          500: '#ffdd1c', // <-- Tu Amarillo Corporativo ORE
+          600: '#e6c200',
+          700: '#b39200',
+        }
       },
     },
   },
