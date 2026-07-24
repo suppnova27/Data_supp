@@ -6,7 +6,7 @@ import {
 } from 'recharts';
 
 export default function DashboardPage() {
-    const [datos, setDatos] = useState({ clientes: [], finanzas: [], inventario: [], servicios: [], etiquetas: [] });
+    const [datos, setDatos] = useState({ clientes: [], finanzas: [], inventario: [], servicios: [], etiquetas: [], finanza_servicios: [] });
     const [cargando, setCargando] = useState(true);
 
     const COLORES_PIE = ['#0055af', '#ffdd1c', '#10b981', '#f59e0b', '#8b5cf6', '#06b6d4', '#ec4899', '#ef4444'];
