@@ -227,19 +227,19 @@ export default function ClientesPage() {
                                                         columna === 'En negociación' ? 'bg-purple-500' :
                                                             columna === 'Cotización enviada' ? 'bg-[#0055af]' : 'bg-slate-400'}`} />
 
-                                                {/* ENCABEZADO DE LA FICHA: NOMBRE Y ETIQUETA */}
-                                                <div className="flex justify-between items-start gap-3 mt-1.5">
-                                                    <div className="flex flex-col gap-1.5 flex-1 min-w-0">
+                                                {/* ENCABEZADO DE LA FICHA: NOMBRE, ETIQUETA Y TELÉFONO */}
+                                                <div className="flex flex-col gap-2 mt-1.5">
+                                                    <div className="flex items-center gap-2 flex-wrap">
                                                         <h4 className="font-black text-slate-800 text-base md:text-lg tracking-tight leading-snug break-words group-hover:text-[#0055af] transition-colors">
                                                             {c.nombres} {c.apellido_paterno || ''}
                                                         </h4>
-                                                        <a href={`tel:${c.telefono}`} className="text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 px-3 py-1 rounded-xl w-fit flex items-center gap-1.5 border border-slate-200/60 transition-colors">
-                                                            <span>📱</span> {c.telefono || 'Sin teléfono'}
-                                                        </a>
+                                                        <span className="text-[10px] font-black bg-blue-50 text-[#0055af] px-2 py-0.5 rounded-lg border border-blue-200/60 shrink-0 whitespace-nowrap shadow-sm">
+                                                            {c.etiqueta || '✨ Residencial'}
+                                                        </span>
                                                     </div>
-                                                    <span className="text-xs font-black bg-blue-50 text-[#0055af] px-3 py-1 rounded-xl border border-blue-200/60 shrink-0 whitespace-nowrap shadow-sm">
-                                                        {c.etiqueta || '✨ Residencial'}
-                                                    </span>
+                                                    <a href={`tel:${c.telefono}`} className="text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 px-3 py-1 rounded-xl w-fit flex items-center gap-1.5 border border-slate-200/60 transition-colors">
+                                                        <span>📱</span> {c.telefono || 'Sin teléfono'}
+                                                    </a>
                                                 </div>
 
                                                 {/* SERVICIO REALIZADO / REQUERIDO (SIN RECORTAR) */}
