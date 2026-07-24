@@ -220,7 +220,7 @@ export default function ClientesPage() {
                                         <div className="text-center py-12 text-slate-400 text-xs italic bg-white/40 border-2 border-dashed border-slate-200 rounded-2xl animate-in fade-in duration-300">No hay prospectos en esta fase</div>
                                     ) : (
                                         leadsDeColumna.map(c => (
-                                            <div key={c.id} className="bg-white rounded-3xl p-5 shadow-sm border border-slate-200 hover:border-[#0055af]/30 hover:shadow-xl hover:shadow-[#0055af]/10 hover:-translate-y-1 transition-all duration-300 flex flex-col gap-3.5 relative overflow-hidden group shrink-0 min-w-[280px] animate-in fade-in slide-in-from-bottom-4 duration-300">
+                                            <div key={c.id} className="bg-white rounded-3xl p-5 shadow-sm border border-slate-200 hover:border-[#0055af]/30 hover:shadow-xl hover:shadow-[#0055af]/10 hover:-translate-y-1 transition-all duration-300 flex flex-col gap-3.5 relative overflow-hidden group animate-in fade-in slide-in-from-bottom-4 duration-300">
 
                                                 <div className={`absolute top-0 left-0 right-0 h-2 transition-all duration-300
                                                     ${columna === 'Nuevo Lead' ? 'bg-[#ffdd1c]' :
