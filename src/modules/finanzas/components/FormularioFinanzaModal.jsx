@@ -28,6 +28,28 @@ async function cargarEtiquetasBD() {
     }
 }
 
+async function cargarServiciosConEtiqueta() {
+    try {
+        const [serviciosRes, etiquetasRes] = await Promise.all([
+            supabase.from('servicios').select('id, nombre, etiqueta_id, activa'),
+            supabase.from('etiquetas').select('id, nombre')
+        ]);
+
+        const servicios = (serviciosRes.data || []).filter(s => s.activa !== false);
+        const etiquetasMap = {};
+        (etiquetasRes.data || []).forEach(e => { etiquetasMap[e.id] = e.nombre; });
+
+        return servicios.map(s => ({
+            id: s.id,
+            nombre: s.nombre,
+            etiqueta_nombre: s.etiqueta_id ? etiquetasMap[s.etiqueta_id] || '' : ''
+        }));
+    } catch (e) {
+        console.error('Excepción cargando servicios con etiqueta:', e);
+        return [];
+    }
+}
+
 async function cargarServiciosBD(etiquetaId = null) {
     try {
         let query = supabase
@@ -76,8 +98,9 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
     const [etiquetas, setEtiquetas] = useState([]);
     const [etiquetaSeleccionada, setEtiquetaSeleccionada] = useState('');
     const [catalogoServicios, setCatalogoServicios] = useState([]);
+    const [serviciosConEtiqueta, setServiciosConEtiqueta] = useState([]);
     const [proyectoRelacionadoId, setProyectoRelacionadoId] = useState('');
-    const [clientesSeleccionados, setClientesSeleccionados] = useState([]);
+    const [serviciosSeleccionados, setServiciosSeleccionados] = useState([]);
 
     const [formData, setFormData] = useState({
         fecha_registro: obtenerFechaHoy(),
@@ -105,6 +128,7 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
                     setFormData(prev => ({ ...prev, servicio: servicios[0] }));
                 }
             });
+            cargarServiciosConEtiqueta().then(servicios => setServiciosConEtiqueta(servicios));
 
             if (finanzaEditando) {
                 let servicioBase = finanzaEditando.servicio || '';
@@ -159,22 +183,20 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
 
                 if (finanzaEditando.id) {
                     (async () => {
-                        const { data: fcData } = await supabase
-                            .from('finanza_clientes')
-                            .select('cliente_id')
+                        const { data: fsData } = await supabase
+                            .from('finanza_servicios')
+                            .select('servicio_id')
                             .eq('finanza_id', finanzaEditando.id);
-                        if (fcData && fcData.length > 0) {
-                            setClientesSeleccionados(fcData.map(fc => fc.cliente_id));
-                        } else if (finanzaEditando.cliente_id) {
-                            setClientesSeleccionados([finanzaEditando.cliente_id]);
+                        if (fsData && fsData.length > 0) {
+                            setServiciosSeleccionados(fsData.map(fs => fs.servicio_id));
                         } else {
-                            setClientesSeleccionados([]);
+                            setServiciosSeleccionados([]);
                         }
                     })();
                 }
             } else {
                 setProyectoRelacionadoId('');
-                setClientesSeleccionados([]);
+                setServiciosSeleccionados([]);
                 setFormData({
                     fecha_registro: obtenerFechaHoy(),
                     tipo: 'Gasto', categoria: '', concepto: '', monto: '', cliente_id: '',
@@ -210,12 +232,12 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
         }
     };
 
-    const toggleCliente = (clienteId) => {
-        setClientesSeleccionados(prev => {
-            if (prev.includes(clienteId)) {
-                return prev.filter(id => id !== clienteId);
+    const toggleServicio = (servicioId) => {
+        setServiciosSeleccionados(prev => {
+            if (prev.includes(servicioId)) {
+                return prev.filter(id => id !== servicioId);
             } else {
-                return [...prev, clienteId];
+                return [...prev, servicioId];
             }
         });
     };
@@ -263,13 +285,13 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
             errFinanza = error;
 
             if (!errFinanza) {
-                await supabase.from('finanza_clientes').delete().eq('finanza_id', finanzaEditando.id);
-                if (clientesSeleccionados.length > 0) {
-                    const registros = clientesSeleccionados.map(cid => ({
+                await supabase.from('finanza_servicios').delete().eq('finanza_id', finanzaEditando.id);
+                if (serviciosSeleccionados.length > 0) {
+                    const registros = serviciosSeleccionados.map(sid => ({
                         finanza_id: finanzaEditando.id,
-                        cliente_id: cid
+                        servicio_id: sid
                     }));
-                    await supabase.from('finanza_clientes').insert(registros);
+                    await supabase.from('finanza_servicios').insert(registros);
                 }
             }
         } else {
@@ -277,12 +299,12 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
             nuevaFinanza = data;
             errFinanza = error;
 
-            if (!errFinanza && clientesSeleccionados.length > 0) {
-                const registros = clientesSeleccionados.map(cid => ({
+            if (!errFinanza && serviciosSeleccionados.length > 0) {
+                const registros = serviciosSeleccionados.map(sid => ({
                     finanza_id: nuevaFinanza.id,
-                    cliente_id: cid
+                    servicio_id: sid
                 }));
-                await supabase.from('finanza_clientes').insert(registros);
+                await supabase.from('finanza_servicios').insert(registros);
             }
 
             if (!errFinanza && formData.tipo === 'Gasto' && consumo.inventario_id) {
@@ -372,9 +394,9 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
 
                         <div className="grid grid-cols-2 gap-4">
                             <div className="flex flex-col gap-1.5">
-                                <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest pl-1">Proyecto Vinculado</label>
+                                <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest pl-1">Cliente / Personal</label>
                                 <select value={formData.cliente_id} onChange={e => setFormData({ ...formData, cliente_id: e.target.value })} className="border-2 border-slate-100 rounded-xl px-4 py-3 text-sm font-bold bg-white outline-none focus:border-[#0055af]">
-                                    <option value="">-- Proyecto (Cliente) --</option>
+                                    <option value="">-- Seleccionar --</option>
                                     {formData.tipo === 'Gasto' && (<option value="pago-personal" className="bg-[#ffdd1c]/20 text-[#0055af]">🏢 PAGO AL PERSONAL</option>)}
                                     {clientes.map(c => <option key={c.id} value={c.id}>{c.nombres}</option>)}
                                 </select>
@@ -453,28 +475,28 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
                             )}
                         </div>
 
-                        {formData.cliente_id !== 'pago-personal' && clientes.length > 0 && (
+                        {formData.cliente_id !== 'pago-personal' && (
                             <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200">
-                                <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest pl-1 block mb-2">Clientes Relacionados (múltiples)</label>
+                                <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest pl-1 block mb-2">Proyectos Relacionados (múltiples)</label>
                                 <div className="flex flex-wrap gap-2">
-                                    {clientes.map(c => (
+                                    {serviciosConEtiqueta.map(s => (
                                         <button
-                                            key={c.id}
+                                            key={s.id}
                                             type="button"
-                                            onClick={() => toggleCliente(c.id)}
+                                            onClick={() => toggleServicio(s.id)}
                                             className={`px-3 py-1.5 rounded-full text-[10px] font-bold border transition-all ${
-                                                clientesSeleccionados.includes(c.id)
+                                                serviciosSeleccionados.includes(s.id)
                                                     ? 'bg-[#0055af] text-white border-[#0055af]'
                                                     : 'bg-white text-slate-500 border-slate-200 hover:border-[#0055af] hover:text-[#0055af]'
                                             }`}
                                         >
-                                            {c.nombres}
+                                            {s.etiqueta_nombre ? `[${s.etiqueta_nombre}] ` : ''}{s.nombre}
                                         </button>
                                     ))}
                                 </div>
-                                {clientesSeleccionados.length > 0 && (
+                                {serviciosSeleccionados.length > 0 && (
                                     <p className="text-[9px] text-slate-400 mt-2 font-medium">
-                                        {clientesSeleccionados.length} cliente(s) seleccionado(s)
+                                        {serviciosSeleccionados.length} proyecto(s) seleccionado(s)
                                     </p>
                                 )}
                             </div>

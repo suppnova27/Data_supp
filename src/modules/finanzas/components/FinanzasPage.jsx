@@ -48,19 +48,19 @@ export default function FinanzasPage() {
 
         if (data) {
             const finanzaIds = data.map(f => f.id);
-            let clientesMap = {};
+            let serviciosMap = {};
 
             if (finanzaIds.length > 0) {
-                const { data: fcData } = await supabase
-                    .from('finanza_clientes')
-                    .select('finanza_id, cliente_id, clientes(nombres, apellido_paterno)')
+                const { data: fsData } = await supabase
+                    .from('finanza_servicios')
+                    .select('finanza_id, servicio_id, servicios(nombre, etiqueta_id)')
                     .in('finanza_id', finanzaIds);
 
-                if (fcData) {
-                    fcData.forEach(fc => {
-                        if (!clientesMap[fc.finanza_id]) clientesMap[fc.finanza_id] = [];
-                        if (fc.clientes) {
-                            clientesMap[fc.finanza_id].push(fc.clientes);
+                if (fsData) {
+                    fsData.forEach(fs => {
+                        if (!serviciosMap[fs.finanza_id]) serviciosMap[fs.finanza_id] = [];
+                        if (fs.servicios) {
+                            serviciosMap[fs.finanza_id].push(fs.servicios);
                         }
                     });
                 }
@@ -68,7 +68,7 @@ export default function FinanzasPage() {
 
             const enriched = data.map(f => ({
                 ...f,
-                clientes_adicionales: clientesMap[f.id] || []
+                servicios_vinculados: serviciosMap[f.id] || []
             }));
 
             setFinanzas(enriched);
@@ -104,7 +104,7 @@ export default function FinanzasPage() {
 
     const eliminarRegistro = async (id) => {
         if (window.confirm("¿Eliminar este registro financiero? Esta acción es irreversible.")) {
-            await supabase.from('finanza_clientes').delete().eq('finanza_id', id);
+            await supabase.from('finanza_servicios').delete().eq('finanza_id', id);
             await supabase.from('finanzas').delete().eq('id', id);
             fetchFinanzas();
         }
@@ -115,13 +115,12 @@ export default function FinanzasPage() {
         if (f.clientes?.nombres) {
             todos.push(`${f.clientes.nombres} ${f.clientes.apellido_paterno || ''}`.trim());
         }
-        if (f.clientes_adicionales) {
-            f.clientes_adicionales.forEach(c => {
-                const nombre = `${c.nombres} ${c.apellido_paterno || ''}`.trim();
-                if (!todos.includes(nombre)) todos.push(nombre);
-            });
-        }
-        return todos.length > 0 ? todos : ['Gasto General / No asignado'];
+        return todos.length > 0 ? todos : ['Sin cliente asignado'];
+    };
+
+    const obtenerServiciosVinculados = (f) => {
+        if (!f.servicios_vinculados || f.servicios_vinculados.length === 0) return [];
+        return f.servicios_vinculados.map(s => s.nombre || 'Servicio sin nombre');
     };
 
     const exportarExcel = () => {
@@ -132,6 +131,7 @@ export default function FinanzasPage() {
 
         const datosFormateados = finanzasFiltradas.map(f => {
             const nombresClientes = obtenerNombresClientes(f).join(', ');
+            const serviciosVinculados = obtenerServiciosVinculados(f).join(', ');
             const { servicio, detalle } = parsearServicio(f.servicio);
 
             return {
@@ -140,8 +140,9 @@ export default function FinanzasPage() {
                 'Categoría': f.categoria || '-',
                 'Detalle / Concepto': f.concepto || '-',
                 'Monto (Bs)': Number(f.monto),
-                'Lead / Cliente Relacionado': nombresClientes,
-                'Servicio': servicio,
+                'Cliente / Personal': nombresClientes,
+                'Servicios Vinculados': serviciosVinculados || '-',
+                'Servicio Principal': servicio,
                 'Detalle Servicio': detalle,
                 'Banco / Entidad': f.banco || 'Efectivo',
                 'Nro. Cuenta': f.numero_cuenta || '-',
@@ -378,7 +379,6 @@ export default function FinanzasPage() {
                                 </tr>
                             ) : (
                                 finanzasFiltradas.map(f => {
-                                    const nombresClientes = obtenerNombresClientes(f);
                                     return (
                                         <tr key={f.id} className="hover:bg-slate-50 transition-colors">
                                             <td className="px-6 py-4 font-bold text-xs text-slate-700">
@@ -387,9 +387,14 @@ export default function FinanzasPage() {
                                             <td className="px-6 py-4">
                                                 <div className="font-black text-slate-800 text-sm">{f.concepto}</div>
                                                 <div className="flex flex-wrap gap-1 mt-1">
-                                                    {nombresClientes.map((nom, idx) => (
+                                                    {obtenerNombresClientes(f).map((nom, idx) => (
                                                         <span key={idx} className="text-[9px] font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">
                                                             {nom}
+                                                        </span>
+                                                    ))}
+                                                    {obtenerServiciosVinculados(f).map((serv, idx) => (
+                                                        <span key={`serv-${idx}`} className="text-[9px] font-bold text-[#0055af] bg-[#0055af]/10 px-1.5 py-0.5 rounded">
+                                                            🧹 {serv}
                                                         </span>
                                                     ))}
                                                 </div>

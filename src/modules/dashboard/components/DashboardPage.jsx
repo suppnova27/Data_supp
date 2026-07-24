@@ -14,12 +14,13 @@ export default function DashboardPage() {
     useEffect(() => {
         const cargarTodo = async () => {
             setCargando(true);
-            const [resClientes, resFinanzas, resInventario, resServicios, resEtiquetas] = await Promise.all([
+            const [resClientes, resFinanzas, resInventario, resServicios, resEtiquetas, resFinanzaServicios] = await Promise.all([
                 supabase.from('clientes').select('*'),
                 supabase.from('finanzas').select('*').order('fecha_registro', { ascending: false }),
                 supabase.from('inventario').select('*'),
                 supabase.from('servicios').select('id, nombre, etiqueta_id'),
-                supabase.from('etiquetas').select('id, nombre, color')
+                supabase.from('etiquetas').select('id, nombre, color'),
+                supabase.from('finanza_servicios').select('finanza_id, servicio_id')
             ]);
 
             setDatos({
@@ -27,7 +28,8 @@ export default function DashboardPage() {
                 finanzas: resFinanzas.data || [],
                 inventario: resInventario.data || [],
                 servicios: resServicios.data || [],
-                etiquetas: resEtiquetas.data || []
+                etiquetas: resEtiquetas.data || [],
+                finanza_servicios: resFinanzaServicios.data || []
             });
             setCargando(false);
         };
@@ -59,33 +61,66 @@ export default function DashboardPage() {
 
     const ingresosPorServicio = useMemo(() => {
         const mapa = {};
-        datos.finanzas.filter(f => f.tipo === 'Ingreso' && f.servicio).forEach(f => {
-            const nombre = f.servicio;
-            mapa[nombre] = (mapa[nombre] || 0) + Number(f.monto);
+        const fsMap = {};
+        datos.finanza_servicios.forEach(fs => {
+            if (!fsMap[fs.finanza_id]) fsMap[fs.finanza_id] = [];
+            fsMap[fs.finanza_id].push(fs.servicio_id);
+        });
+
+        const serviciosMap = {};
+        datos.servicios.forEach(s => { serviciosMap[s.id] = s.nombre; });
+
+        datos.finanzas.filter(f => f.tipo === 'Ingreso').forEach(f => {
+            const serviciosVinculados = fsMap[f.id] || [];
+            if (serviciosVinculados.length > 0) {
+                const montoPorServicio = Number(f.monto) / serviciosVinculados.length;
+                serviciosVinculados.forEach(sid => {
+                    const nombre = serviciosMap[sid] || 'Servicio desconocido';
+                    mapa[nombre] = (mapa[nombre] || 0) + montoPorServicio;
+                });
+            } else if (f.servicio) {
+                mapa[f.servicio] = (mapa[f.servicio] || 0) + Number(f.monto);
+            }
         });
         return Object.entries(mapa)
             .map(([name, value]) => ({ name, value: Math.round(value) }))
             .sort((a, b) => b.value - a.value)
             .slice(0, 6);
-    }, [datos.finanzas]);
+    }, [datos.finanzas, datos.finanza_servicios, datos.servicios]);
 
     const ingresosPorEtiqueta = useMemo(() => {
         const mapa = {};
+        const fsMap = {};
+        datos.finanza_servicios.forEach(fs => {
+            if (!fsMap[fs.finanza_id]) fsMap[fs.finanza_id] = [];
+            fsMap[fs.finanza_id].push(fs.servicio_id);
+        });
+
         const serviciosMap = {};
-        datos.servicios.forEach(s => { serviciosMap[s.nombre] = s.etiqueta_id; });
+        datos.servicios.forEach(s => { serviciosMap[s.id] = s.etiqueta_id; });
         const etiquetasMap = {};
         datos.etiquetas.forEach(e => { etiquetasMap[e.id] = e.nombre; });
 
-        datos.finanzas.filter(f => f.tipo === 'Ingreso' && f.servicio).forEach(f => {
-            const etiquetaId = serviciosMap[f.servicio];
-            const etiquetaNombre = etiquetaId ? (etiquetasMap[etiquetaId] || 'Sin Etiqueta') : 'Sin Etiqueta';
-            mapa[etiquetaNombre] = (mapa[etiquetaNombre] || 0) + Number(f.monto);
+        datos.finanzas.filter(f => f.tipo === 'Ingreso').forEach(f => {
+            const serviciosVinculados = fsMap[f.id] || [];
+            if (serviciosVinculados.length > 0) {
+                const montoPorServicio = Number(f.monto) / serviciosVinculados.length;
+                serviciosVinculados.forEach(sid => {
+                    const etiquetaId = serviciosMap[sid];
+                    const etiquetaNombre = etiquetaId ? (etiquetasMap[etiquetaId] || 'Sin Etiqueta') : 'Sin Etiqueta';
+                    mapa[etiquetaNombre] = (mapa[etiquetaNombre] || 0) + montoPorServicio;
+                });
+            } else if (f.servicio) {
+                const etiquetaId = serviciosMap[f.servicio];
+                const etiquetaNombre = etiquetaId ? (etiquetasMap[etiquetaId] || 'Sin Etiqueta') : 'Sin Etiqueta';
+                mapa[etiquetaNombre] = (mapa[etiquetaNombre] || 0) + Number(f.monto);
+            }
         });
         return Object.entries(mapa)
             .map(([name, value]) => ({ name, value: Math.round(value) }))
             .sort((a, b) => b.value - a.value)
             .slice(0, 6);
-    }, [datos.finanzas, datos.servicios, datos.etiquetas]);
+    }, [datos.finanzas, datos.finanza_servicios, datos.servicios, datos.etiquetas]);
 
     const flujoDeCaja = useMemo(() => {
         const meses = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
