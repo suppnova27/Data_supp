@@ -246,78 +246,88 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
         e.preventDefault();
         setGuardando(true);
 
-        let servicioFinal = formData.servicio === '✨ Otro (Especificar)' ? formData.servicio_manual : formData.servicio;
+        try {
+            let servicioFinal = formData.servicio === '✨ Otro (Especificar)' ? formData.servicio_manual : formData.servicio;
 
-        if (formData.servicio === '🧹 Limpieza Rutinaria') {
-            const subFinal = formData.sub_servicio === 'Otro (Especificar)' ? formData.sub_servicio_manual : formData.sub_servicio;
-            if (subFinal) {
-                servicioFinal = `${formData.servicio} - ${subFinal}`;
+            if (formData.servicio === '🧹 Limpieza Rutinaria') {
+                const subFinal = formData.sub_servicio === 'Otro (Especificar)' ? formData.sub_servicio_manual : formData.sub_servicio;
+                if (subFinal) {
+                    servicioFinal = `${formData.servicio} - ${subFinal}`;
+                }
             }
-        }
 
-        const primerClienteId = clientesSeleccionados.length > 0 ? clientesSeleccionados[0] : (formData.cliente_id || null);
+            const primerClienteId = serviciosSeleccionados.length > 0 ? serviciosSeleccionados[0] : (formData.cliente_id || null);
 
-        const datosParaSupabase = {
-            fecha_registro: formData.fecha_registro,
-            tipo: formData.tipo,
-            categoria: formData.categoria,
-            concepto: formData.concepto,
-            monto: parseFloat(formData.monto),
-            cliente_id: primerClienteId,
-            servicio: servicioFinal,
-            banco: formData.banco,
-            numero_cuenta: formData.numero_cuenta,
-            titular: formData.titular,
-            id_operacion: formData.id_operacion,
-            cuenta_id: formData.cuenta_id || null
-        };
+            const datosParaSupabase = {
+                fecha_registro: formData.fecha_registro,
+                tipo: formData.tipo,
+                categoria: formData.categoria,
+                concepto: formData.concepto,
+                monto: parseFloat(formData.monto),
+                cliente_id: primerClienteId,
+                servicio: servicioFinal,
+                banco: formData.banco,
+                numero_cuenta: formData.numero_cuenta,
+                titular: formData.titular,
+                id_operacion: formData.id_operacion,
+                cuenta_id: formData.cuenta_id || null
+            };
 
-        if (formData.cliente_id === 'pago-personal') {
-            datosParaSupabase.cliente_id = proyectoRelacionadoId ? proyectoRelacionadoId : null;
-            datosParaSupabase.categoria = 'Nómina y Salarios';
-        }
+            if (formData.cliente_id === 'pago-personal') {
+                datosParaSupabase.cliente_id = proyectoRelacionadoId ? proyectoRelacionadoId : null;
+                datosParaSupabase.categoria = 'Nómina y Salarios';
+            }
 
-        let errFinanza = null;
-        let nuevaFinanza = null;
+            let errFinanza = null;
+            let nuevaFinanza = null;
 
-        if (finanzaEditando) {
-            const { error } = await supabase.from('finanzas').update(datosParaSupabase).eq('id', finanzaEditando.id);
-            errFinanza = error;
+            if (finanzaEditando) {
+                const { error } = await supabase.from('finanzas').update(datosParaSupabase).eq('id', finanzaEditando.id);
+                errFinanza = error;
 
-            if (!errFinanza) {
-                await supabase.from('finanza_servicios').delete().eq('finanza_id', finanzaEditando.id);
-                if (serviciosSeleccionados.length > 0) {
+                if (!errFinanza) {
+                    await supabase.from('finanza_servicios').delete().eq('finanza_id', finanzaEditando.id);
+                    if (serviciosSeleccionados.length > 0) {
+                        const registros = serviciosSeleccionados.map(sid => ({
+                            finanza_id: finanzaEditando.id,
+                            servicio_id: sid
+                        }));
+                        await supabase.from('finanza_servicios').insert(registros);
+                    }
+                }
+            } else {
+                const { data, error } = await supabase.from('finanzas').insert([datosParaSupabase]).select().single();
+                nuevaFinanza = data;
+                errFinanza = error;
+
+                if (!errFinanza && serviciosSeleccionados.length > 0 && nuevaFinanza) {
                     const registros = serviciosSeleccionados.map(sid => ({
-                        finanza_id: finanzaEditando.id,
+                        finanza_id: nuevaFinanza.id,
                         servicio_id: sid
                     }));
                     await supabase.from('finanza_servicios').insert(registros);
                 }
-            }
-        } else {
-            const { data, error } = await supabase.from('finanzas').insert([datosParaSupabase]).select().single();
-            nuevaFinanza = data;
-            errFinanza = error;
 
-            if (!errFinanza && serviciosSeleccionados.length > 0) {
-                const registros = serviciosSeleccionados.map(sid => ({
-                    finanza_id: nuevaFinanza.id,
-                    servicio_id: sid
-                }));
-                await supabase.from('finanza_servicios').insert(registros);
-            }
-
-            if (!errFinanza && formData.tipo === 'Gasto' && consumo.inventario_id) {
-                const producto = productos.find(p => p.id === consumo.inventario_id);
-                if (producto) {
-                    await supabase.from('consumo_inventario').insert({ finanza_id: nuevaFinanza.id, inventario_id: consumo.inventario_id, cantidad_usada: consumo.cantidad });
-                    await supabase.from('inventario').update({ cantidad: producto.cantidad - consumo.cantidad }).eq('id', consumo.inventario_id);
+                if (!errFinanza && formData.tipo === 'Gasto' && consumo.inventario_id && nuevaFinanza) {
+                    const producto = productos.find(p => p.id === consumo.inventario_id);
+                    if (producto) {
+                        await supabase.from('consumo_inventario').insert({ finanza_id: nuevaFinanza.id, inventario_id: consumo.inventario_id, cantidad_usada: consumo.cantidad });
+                        await supabase.from('inventario').update({ cantidad: producto.cantidad - consumo.cantidad }).eq('id', consumo.inventario_id);
+                    }
                 }
             }
-        }
 
-        setGuardando(false);
-        if (!errFinanza) { onGuardado(); onClose(); }
+            setGuardando(false);
+            if (errFinanza) {
+                alert('Error al guardar: ' + (errFinanza.message || 'Error desconocido'));
+            } else {
+                onGuardado();
+                onClose();
+            }
+        } catch (err) {
+            setGuardando(false);
+            alert('Error inesperado: ' + err.message);
+        }
     };
 
     if (!isOpen) return null;
