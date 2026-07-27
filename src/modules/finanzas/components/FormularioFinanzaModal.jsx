@@ -256,7 +256,7 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
                 }
             }
 
-            const primerClienteId = serviciosSeleccionados.length > 0 ? serviciosSeleccionados[0] : (formData.cliente_id || null);
+            const primerClienteId = formData.cliente_id && formData.cliente_id !== 'pago-personal' ? formData.cliente_id : null;
 
             const datosParaSupabase = {
                 fecha_registro: formData.fecha_registro,
