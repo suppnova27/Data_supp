@@ -1,4 +1,14 @@
 // Mock data that simulates the Supabase database
+const hoy = new Date();
+const fechaISO = (d) => {
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${m}-${day}`;
+};
+const diaFijo = (dia, anio = hoy.getFullYear(), mes = hoy.getMonth()) => {
+  return fechaISO(new Date(anio, mes, dia));
+};
+
 export const MOCK_DATA = {
   perfiles: [
     { id: 'test-user-001', email: 'test@ore.com', rol: 'SA', nombre_completo: 'Test User' }
@@ -33,6 +43,11 @@ export const MOCK_DATA = {
   ],
   proyectos: [
     { id: 'pro-001', nombre: 'Oficina Maria Garcia', cliente_id: 'cli-001', estado: 'Activo' },
+  ],
+  calendario: [
+    { id: 'cal-001', fecha: fechaISO(hoy), hora: '09:00:00', tipo: 'Visita', titulo: 'Visita cotización Maria', cliente_id: 'cli-001', servicio_id: 'srv-001', etiqueta_id: 'etq-001', estado: 'Pendiente', notas: 'Confirmar medidas del local', usuario_id: 'test-user-001' },
+    { id: 'cal-002', fecha: diaFijo(15), hora: '14:30:00', tipo: 'Proyecto', titulo: 'Limpieza oficina Carlos', cliente_id: 'cli-002', servicio_id: 'srv-002', etiqueta_id: 'etq-002', estado: 'En curso', notas: '', usuario_id: 'test-user-001' },
+    { id: 'cal-003', fecha: diaFijo(1), hora: '10:00:00', tipo: 'Cita', titulo: 'Llamada seguimiento Ana', cliente_id: 'cli-003', servicio_id: null, etiqueta_id: 'etq-001', estado: 'Completado', notas: 'Cliente interesado en contrato mensual', usuario_id: 'test-user-001' },
   ],
 };
 
@@ -86,6 +101,16 @@ function applyFilters(data, filters, url) {
       const column = key;
       const val = value.substring(4);
       result = result.filter(row => String(row[column]) !== String(val));
+    }
+    if (value && value.startsWith('gte.')) {
+      const column = key;
+      const val = value.substring(4);
+      result = result.filter(row => String(row[column]) >= String(val));
+    }
+    if (value && value.startsWith('lte.')) {
+      const column = key;
+      const val = value.substring(4);
+      result = result.filter(row => String(row[column]) <= String(val));
     }
   }
   
@@ -298,4 +323,9 @@ export function resetMockData() {
     { id: 'fin-002', fecha_registro: '2026-07-22', tipo: 'Gasto', categoria: 'Insumos', concepto: 'Compra de productos de limpieza', monto: 350, cliente_id: null, servicio: '', banco: 'BCA', numero_cuenta: '1234567', titular: 'ORE', id_operacion: 'TX-001', cuenta_id: 'cta-001' },
   ];
   MOCK_DATA.finanza_servicios = [];
+  MOCK_DATA.calendario = [
+    { id: 'cal-001', fecha: fechaISO(hoy), hora: '09:00:00', tipo: 'Visita', titulo: 'Visita cotización Maria', cliente_id: 'cli-001', servicio_id: 'srv-001', etiqueta_id: 'etq-001', estado: 'Pendiente', notas: 'Confirmar medidas del local', usuario_id: 'test-user-001' },
+    { id: 'cal-002', fecha: diaFijo(15), hora: '14:30:00', tipo: 'Proyecto', titulo: 'Limpieza oficina Carlos', cliente_id: 'cli-002', servicio_id: 'srv-002', etiqueta_id: 'etq-002', estado: 'En curso', notas: '', usuario_id: 'test-user-001' },
+    { id: 'cal-003', fecha: diaFijo(1), hora: '10:00:00', tipo: 'Cita', titulo: 'Llamada seguimiento Ana', cliente_id: 'cli-003', servicio_id: null, etiqueta_id: 'etq-001', estado: 'Completado', notas: 'Cliente interesado en contrato mensual', usuario_id: 'test-user-001' },
+  ];
 }

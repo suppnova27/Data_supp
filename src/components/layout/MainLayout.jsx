@@ -4,6 +4,7 @@ const MODULOS_SISTEMA = [
     { id: 'Inicio', nombre: 'Dashboard', icono: '📊', rolesPermitidos: ['SA', 'Supervisor'] },
     { id: 'Clientes', nombre: 'Clientes Activos', icono: '👥', rolesPermitidos: ['SA', 'Supervisor'] },
     { id: 'ClientesCerrados', nombre: 'Clientes Cerrados', icono: '🗃️', rolesPermitidos: ['SA', 'Supervisor'] },
+    { id: 'Calendario', nombre: 'Calendario', icono: '📅', rolesPermitidos: ['SA', 'Supervisor'] },
     { id: 'Finanzas', nombre: 'Finanzas', icono: '💰', rolesPermitidos: ['SA'] },
     { id: 'Etiquetas', nombre: 'Etiquetas', icono: '🏷️', rolesPermitidos: ['SA'] },
     { id: 'Proyectos', nombre: 'Analítica', icono: '📈', rolesPermitidos: ['SA'] },

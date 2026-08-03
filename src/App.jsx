@@ -11,6 +11,7 @@ import DashboardPage from './modules/dashboard/components/DashboardPage';
 import ClientesPage from './modules/clientes/components/ClientesPage';
 import ClientesCerradosPage from './modules/clientes/components/ClientesCerradosPage';
 import FinanzasPage from './modules/finanzas/components/FinanzasPage';
+import CalendarioPage from './modules/calendario/components/CalendarioPage';
 import EtiquetasPage from './modules/etiquetas/components/EtiquetasPage';
 import ProyectosPage from './modules/proyectos/components/ProyectosPage';
 import CuentasPage from './modules/configuracion/components/CuentasPage';
@@ -102,6 +103,7 @@ function App() {
       {vistaActiva === 'Clientes' && <ClientesPage />}
       {vistaActiva === 'ClientesCerrados' && <ClientesCerradosPage />}
       {vistaActiva === 'Finanzas' && <FinanzasPage />}
+      {vistaActiva === 'Calendario' && <CalendarioPage />}
       {vistaActiva === 'Etiquetas' && <EtiquetasPage />}
       {vistaActiva === 'Proyectos' && <ProyectosPage />}
       {vistaActiva === 'Configuracion' && <CuentasPage />}
