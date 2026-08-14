@@ -4,6 +4,7 @@ import { supabase } from './lib/supabase';
 // Importación de Páginas de Autenticación
 import LoginPage from './modules/auth/LoginPage';
 import RolesPage from './modules/auth/RolesPage';
+import CuentaSuspendidaPage from './modules/auth/CuentaSuspendidaPage';
 
 // Importación del Layout y Módulos del CRM
 import MainLayout from './components/layout/MainLayout';
@@ -75,6 +76,12 @@ function App() {
   }
 
   if (!sesion) return <LoginPage />;
+
+  // BLOQUEO DE COBRANZA: Se muestra DESPUÉS del login a todos los usuarios
+  // excepto la cuenta maestra (la tuya). Es imposible llegar al CRM.
+  if (perfil && perfil.email !== 'novasolum.info@gmail.com') {
+    return <CuentaSuspendidaPage onLogout={handleLogout} />;
+  }
 
   // LA LLAVE MAESTRA: Se salta el bloqueo si el correo es el tuyo
   if (perfil && perfil.rol === 'Pendiente' && perfil.email !== 'novasolum.info@gmail.com') {
