@@ -11,7 +11,7 @@ const diaFijo = (dia, anio = hoy.getFullYear(), mes = hoy.getMonth()) => {
 
 export const MOCK_DATA = {
   perfiles: [
-    { id: 'test-user-001', email: 'test@ore.com', rol: 'SA', nombre_completo: 'Test User' }
+    { id: 'test-user-001', email: 'novasolum.info@gmail.com', rol: 'SA', nombre_completo: 'Test User' }
   ],
   clientes: [
     { id: 'cli-001', nombres: 'Maria Garcia', telefono: '79123456', email: 'maria@test.com' },
@@ -288,7 +288,7 @@ export function mockLoggedInSession() {
     token_type: 'bearer',
     user: {
       id: 'test-user-001',
-      email: 'test@ore.com',
+      email: 'novasolum.info@gmail.com',
       app_metadata: {},
       user_metadata: { full_name: 'Test User' },
       aud: 'authenticated',

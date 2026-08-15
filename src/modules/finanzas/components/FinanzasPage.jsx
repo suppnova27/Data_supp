@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from '../../../lib/supabase';
-import * as XLSX from 'xlsx';
+import * as XLSX from 'xlsx-js-style';
 import FormularioFinanzaModal from './FormularioFinanzaModal';
 
 const formatearFecha = (fechaStr) => {
@@ -12,6 +12,11 @@ const formatearFecha = (fechaStr) => {
     }
     const fecha = new Date(fechaStr);
     return isNaN(fecha.getTime()) ? '-' : fecha.toLocaleDateString('es-BO');
+};
+
+const obtenerFechaHoyISO = () => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 
 const parsearServicio = (servicioStr) => {
@@ -35,6 +40,8 @@ export default function FinanzasPage() {
     const [finanzaEditando, setFinanzaEditando] = useState(null);
     const [filtroMes, setFiltroMes] = useState(new Date().getMonth() + 1);
     const [filtroAnio, setFiltroAnio] = useState(new Date().getFullYear());
+    const [filtroTipoPeriodo, setFiltroTipoPeriodo] = useState('Mes'); // 'Día' | 'Mes' | 'Año'
+    const [filtroFechaDia, setFiltroFechaDia] = useState(obtenerFechaHoyISO());
     const [importando, setImportando] = useState(false);
 
     const fileInputRef = useRef(null);
@@ -43,7 +50,7 @@ export default function FinanzasPage() {
         setCargando(true);
         const { data } = await supabase
             .from('finanzas')
-            .select('*, clientes(nombres, apellido_paterno)')
+            .select('*, clientes(nombres, apellido_paterno, telefono, trabajo_realizado)')
             .order('fecha_registro', { ascending: false });
 
         if (data) {
@@ -60,7 +67,11 @@ export default function FinanzasPage() {
                     fsData.forEach(fs => {
                         if (!serviciosMap[fs.finanza_id]) serviciosMap[fs.finanza_id] = [];
                         if (fs.servicios) {
-                            serviciosMap[fs.finanza_id].push(fs.servicios);
+                            // Evitar duplicados: si el servicio ya está vinculado a esta finanza, no lo repetimos
+                            const yaExiste = serviciosMap[fs.finanza_id].some(s => s.nombre === fs.servicios.nombre);
+                            if (!yaExiste) {
+                                serviciosMap[fs.finanza_id].push(fs.servicios);
+                            }
                         }
                     });
                 }
@@ -81,15 +92,26 @@ export default function FinanzasPage() {
     const finanzasFiltradas = finanzas.filter(f => {
         if (!f.fecha_registro) return false;
         const match = String(f.fecha_registro).match(/^(\d{4})-(\d{2})-(\d{2})/);
-        let mes, anio;
+        let mes, anio, dia;
         if (match) {
             anio = Number(match[1]);
             mes = Number(match[2]);
+            dia = Number(match[3]);
         } else {
             const fecha = new Date(f.fecha_registro);
             anio = fecha.getFullYear();
             mes = fecha.getMonth() + 1;
+            dia = fecha.getDate();
         }
+
+        if (filtroTipoPeriodo === 'Día') {
+            const [fY, fM, fD] = String(filtroFechaDia).split('-').map(Number);
+            return anio === fY && mes === fM && dia === fD;
+        }
+        if (filtroTipoPeriodo === 'Año') {
+            return anio === Number(filtroAnio);
+        }
+        // Mes
         return mes === Number(filtroMes) && anio === Number(filtroAnio);
     });
 
@@ -118,9 +140,39 @@ export default function FinanzasPage() {
         return todos.length > 0 ? todos : ['Sin cliente asignado'];
     };
 
+    const obtenerTelefonoCliente = (f) => {
+        if (f.clientes?.telefono) return f.clientes.telefono;
+        return '-';
+    };
+
     const obtenerServiciosVinculados = (f) => {
         if (!f.servicios_vinculados || f.servicios_vinculados.length === 0) return [];
         return f.servicios_vinculados.map(s => s.nombre || 'Servicio sin nombre');
+    };
+
+    // Proyecto principal según la entrada predeterminada (servicios vinculados / trabajo realizado)
+    const obtenerProyectoPrincipal = (f) => {
+        const vinculados = obtenerServiciosVinculados(f);
+        if (vinculados.length > 0) {
+            return vinculados.join(', ');
+        }
+        if (f.clientes?.trabajo_realizado) {
+            return f.clientes.trabajo_realizado;
+        }
+        const { servicio } = parsearServicio(f.servicio);
+        return servicio && servicio !== '-' ? servicio : 'Sin proyecto';
+    };
+
+    const obtenerSufijoPeriodo = () => {
+        if (filtroTipoPeriodo === 'Día') {
+            const [fY, fM, fD] = String(filtroFechaDia).split('-');
+            return `Dia_${fD}-${fM}-${fY}`;
+        }
+        if (filtroTipoPeriodo === 'Año') {
+            return `Anio_${filtroAnio}`;
+        }
+        const nombreMes = new Date(0, filtroMes - 1).toLocaleString('es', { month: 'long' });
+        return `${nombreMes}_${filtroAnio}`;
     };
 
     const exportarExcel = () => {
@@ -129,10 +181,16 @@ export default function FinanzasPage() {
             return;
         }
 
+        // 1. Construir los datos completos usando el PROYECTO (entrada predeterminada)
+        //    en lugar de la descripción manual del servicio.
         const datosFormateados = finanzasFiltradas.map(f => {
             const nombresClientes = obtenerNombresClientes(f).join(', ');
+            const proyecto = obtenerProyectoPrincipal(f);
             const serviciosVinculados = obtenerServiciosVinculados(f).join(', ');
-            const { servicio, detalle } = parsearServicio(f.servicio);
+            const esPagoPersonal = f.tipo === 'Gasto' && (
+                f.categoria === 'Nómina y Salarios' ||
+                (f.servicio && f.servicio.toLowerCase().startsWith('sueldo:'))
+            );
 
             return {
                 'Fecha de Registro': formatearFecha(f.fecha_registro),
@@ -140,10 +198,10 @@ export default function FinanzasPage() {
                 'Categoría': f.categoria || '-',
                 'Detalle / Concepto': f.concepto || '-',
                 'Monto (Bs)': Number(f.monto),
-                'Cliente / Personal': nombresClientes,
+                'Proyecto (Entrada Predeterminada)': proyecto,
                 'Servicios Vinculados': serviciosVinculados || '-',
-                'Servicio Principal': servicio,
-                'Detalle Servicio': detalle,
+                'Cliente / Personal': esPagoPersonal ? (f.titular || 'Personal') : nombresClientes,
+                'Celular Cliente': esPagoPersonal ? '-' : obtenerTelefonoCliente(f),
                 'Banco / Entidad': f.banco || 'Efectivo',
                 'Nro. Cuenta': f.numero_cuenta || '-',
                 'Titular Cuenta': f.titular || '-',
@@ -151,12 +209,106 @@ export default function FinanzasPage() {
             };
         });
 
+        // 2. Crear la hoja de cálculo con formato de TABLA EXCEL
         const worksheet = XLSX.utils.json_to_sheet(datosFormateados);
+
+        // Ancho de columnas
+        worksheet['!cols'] = [
+            { wch: 14 }, // Fecha
+            { wch: 9 },  // Tipo
+            { wch: 24 }, // Categoría
+            { wch: 34 }, // Detalle / Concepto
+            { wch: 12 }, // Monto
+            { wch: 38 }, // Proyecto
+            { wch: 30 }, // Servicios
+            { wch: 26 }, // Cliente
+            { wch: 14 }, // Celular
+            { wch: 16 }, // Banco
+            { wch: 16 }, // Nro cuenta
+            { wch: 24 }, // Titular
+            { wch: 18 }  // ID op
+        ];
+
+        const rango = XLSX.utils.decode_range(worksheet['!ref']);
+        const N_COLS = rango.e.c + 1;
+
+        // Helper para aplicar estilo a una celda
+        const aplicarEstilo = (R, C, estilo) => {
+            const dir = XLSX.utils.encode_cell({ r: R, c: C });
+            if (!worksheet[dir]) worksheet[dir] = { t: 's', v: '' };
+            const prev = worksheet[dir].s || {};
+            worksheet[dir].s = { ...prev, ...estilo };
+        };
+
+        // FILA 1: Encabezado estilizado (negrita, fondo azul, texto blanco, centrado)
+        for (let C = 0; C < N_COLS; C++) {
+            aplicarEstilo(0, C, {
+                font: { bold: true, color: { rgb: 'FFFFFF' }, sz: 11 },
+                fill: { fgColor: { rgb: '0055AF' } },
+                alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+                border: {
+                    top: { style: 'thin', color: { rgb: '90A4AE' } },
+                    left: { style: 'thin', color: { rgb: '90A4AE' } },
+                    bottom: { style: 'medium', color: { rgb: '003366' } },
+                    right: { style: 'thin', color: { rgb: '90A4AE' } }
+                }
+            });
+        }
+        worksheet['!rows'] = [{ hpt: 26 }]; // altura encabezado
+
+        // FILAS DE DATOS: bandas de color alternadas + bordes
+        for (let R = 1; R <= rango.e.r; R++) {
+            const esFilaPar = R % 2 === 0;
+            const colorFondo = esFilaPar ? 'EAF2FB' : 'FFFFFF'; // azul claro alterno
+            const tipoCelda = worksheet[XLSX.utils.encode_cell({ r: R, c: 1 })];
+            const esIngreso = tipoCelda && String(tipoCelda.v).trim().toLowerCase() === 'ingreso';
+
+            for (let C = 0; C < N_COLS; C++) {
+                aplicarEstilo(R, C, {
+                    font: { sz: 10, color: { rgb: '1F2937' } },
+                    fill: { fgColor: { rgb: colorFondo } },
+                    alignment: {
+                        horizontal: C === 4 ? 'right' : (C === 1 ? 'center' : 'left'),
+                        vertical: 'center',
+                        wrapText: C === 3 || C === 5 || C === 6 || C === 7 || C === 8
+                    },
+                    border: {
+                        top: { style: 'hair', color: { rgb: 'CBD5E1' } },
+                        left: { style: 'hair', color: { rgb: 'CBD5E1' } },
+                        bottom: { style: 'hair', color: { rgb: 'CBD5E1' } },
+                        right: { style: 'hair', color: { rgb: 'CBD5E1' } }
+                    }
+                });
+            }
+
+            // Columna Monto (C=4): formato numérico con separador de miles y resaltado por tipo
+            const dirMonto = XLSX.utils.encode_cell({ r: R, c: 4 });
+            if (worksheet[dirMonto]) {
+                worksheet[dirMonto].s = {
+                    ...worksheet[dirMonto].s,
+                    numFmt: '0.00',
+                    font: { bold: true, sz: 10, color: { rgb: esIngreso ? '047857' : 'B91C1C' } }
+                };
+            }
+
+            // Columna Tipo (C=1): etiqueta en negrita
+            const dirTipo = XLSX.utils.encode_cell({ r: R, c: 1 });
+            if (worksheet[dirTipo]) {
+                worksheet[dirTipo].s = {
+                    ...worksheet[dirTipo].s,
+                    font: { bold: true, sz: 10, color: { rgb: esIngreso ? '047857' : 'B91C1C' } }
+                };
+            }
+        }
+
+        // Auto-filtro + congelar encabezado (formato de tabla estándar de Excel)
+        worksheet['!autofilter'] = { ref: worksheet['!ref'] };
+        worksheet['!freeze'] = { xSplit: 0, ySplit: 1 };
+
         const workbook = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(workbook, worksheet, "Reporte Financiero");
 
-        const nombreMes = new Date(0, filtroMes - 1).toLocaleString('es', { month: 'long' });
-        XLSX.writeFile(workbook, `Finanzas_ORE_${nombreMes}_${filtroAnio}.xlsx`);
+        XLSX.writeFile(workbook, `Finanzas_ORE_${obtenerSufijoPeriodo()}.xlsx`);
     };
 
     const handleImportarExcel = async (e) => {
@@ -177,7 +329,9 @@ export default function FinanzasPage() {
                 return;
             }
 
-            const { data: listaClientes } = await supabase.from('clientes').select('id, nombres, apellido_paterno');
+            const { data: listaClientes } = await supabase
+                .from('clientes')
+                .select('id, nombres, apellido_paterno, telefono');
 
             const registrosAAgregar = [];
 
@@ -210,9 +364,21 @@ export default function FinanzasPage() {
                 const concepto = String(row['Detalle / Concepto'] || row['Concepto'] || row['Detalle'] || 'Movimiento importado');
                 const monto = parseFloat(row['Monto (Bs)'] || row['Monto'] || row['monto'] || 0);
 
-                const clienteTexto = String(row['Lead / Cliente Relacionado'] || row['Cliente'] || '').trim().toLowerCase();
+                const clienteTexto = String(
+                    row['Lead / Cliente Relacionado']
+                    || row['Cliente']
+                    || row['Cliente / Personal']
+                    || ''
+                ).trim().toLowerCase();
+                const celularCliente = String(
+                    row['Celular Cliente']
+                    || row['Celular']
+                    || row['Telefono']
+                    || row['Teléfono']
+                    || ''
+                ).trim();
                 let cliente_id = null;
-                if (listaClientes && clienteTexto && !clienteTexto.includes('gasto general')) {
+                if (listaClientes && clienteTexto && !clienteTexto.includes('gasto general') && !clienteTexto.includes('sin cliente')) {
                     const clienteEncontrado = listaClientes.find(c => {
                         const nombreCompleto = `${c.nombres} ${c.apellido_paterno || ''}`.trim().toLowerCase();
                         return nombreCompleto.includes(clienteTexto) || clienteTexto.includes(c.nombres.toLowerCase());
@@ -222,13 +388,28 @@ export default function FinanzasPage() {
                     }
                 }
 
-                const servicioCol = row['Servicio'] || '';
+                // Si la fila trae celular y aún no hay cliente por nombre, intentar coincidir por teléfono
+                if (!cliente_id && celularCliente && listaClientes && celularCliente !== '-') {
+                    const clientePorTelefono = listaClientes.find(c =>
+                        c.telefono && String(c.telefono).trim() === celularCliente
+                    );
+                    if (clientePorTelefono) {
+                        cliente_id = clientePorTelefono.id;
+                    }
+                }
+
+                // Proyecto / servicio: soporta el nuevo export (Proyecto predeterminado / Servicios vinculados)
+                // y las plantillas antiguas (Servicio + Detalle Servicio / Servicio Realizado)
+                const servicioCol = row['Proyecto (Entrada Predeterminada)']
+                    || row['Servicios Vinculados']
+                    || row['Servicio']
+                    || '';
                 const detalleCol = row['Detalle Servicio'] || '';
                 const servicioLegacy = row['Servicio Realizado'] || '';
                 let servicio = '';
                 if (servicioCol && detalleCol && detalleCol !== '-') {
                     servicio = `${servicioCol} - ${detalleCol}`;
-                } else if (servicioCol) {
+                } else if (servicioCol && servicioCol !== 'Sin proyecto' && servicioCol !== '-') {
                     servicio = servicioCol;
                 } else {
                     servicio = servicioLegacy;
@@ -306,11 +487,11 @@ export default function FinanzasPage() {
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 border-l-4 border-l-emerald-500">
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Ingresos del Mes</p>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Ingresos del Período</p>
                     <p className="text-3xl font-black text-slate-800 mt-2">Bs. {ingresos.toLocaleString('es-BO', { minimumFractionDigits: 2 })}</p>
                 </div>
                 <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 border-l-4 border-l-rose-500">
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Gastos del Mes</p>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Gastos del Período</p>
                     <p className="text-3xl font-black text-slate-800 mt-2">Bs. {gastos.toLocaleString('es-BO', { minimumFractionDigits: 2 })}</p>
                 </div>
                 <div className={`bg-white p-6 rounded-3xl shadow-sm border border-slate-100 border-l-4 ${balance >= 0 ? 'border-l-blue-500' : 'border-l-amber-500'}`}>
@@ -325,25 +506,60 @@ export default function FinanzasPage() {
                 <div className="p-5 border-b border-slate-100 bg-slate-50 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                     <div className="flex items-center gap-3">
                         <h3 className="font-black text-slate-700 uppercase tracking-widest text-xs">Historial</h3>
-                        <div className="flex gap-2">
+                        <div className="flex flex-wrap gap-2">
                             <select
-                                value={filtroMes}
-                                onChange={e => setFiltroMes(Number(e.target.value))}
+                                value={filtroTipoPeriodo}
+                                onChange={e => setFiltroTipoPeriodo(e.target.value)}
                                 className="bg-white border border-slate-200 text-xs font-bold text-slate-700 px-3 py-1.5 rounded-lg outline-none focus:border-[#0055af]"
                             >
-                                {['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'].map((mes, idx) => (
-                                    <option key={idx + 1} value={idx + 1}>{mes}</option>
-                                ))}
+                                <option value="Día">📆 Por Día</option>
+                                <option value="Mes">📅 Por Mes</option>
+                                <option value="Año">🗓️ Por Año</option>
                             </select>
-                            <select
-                                value={filtroAnio}
-                                onChange={e => setFiltroAnio(Number(e.target.value))}
-                                className="bg-white border border-slate-200 text-xs font-bold text-slate-700 px-3 py-1.5 rounded-lg outline-none focus:border-[#0055af]"
-                            >
-                                {[2024, 2025, 2026, 2027].map(a => (
-                                    <option key={a} value={a}>{a}</option>
-                                ))}
-                            </select>
+
+                            {filtroTipoPeriodo === 'Día' && (
+                                <input
+                                    type="date"
+                                    value={filtroFechaDia}
+                                    onChange={e => setFiltroFechaDia(e.target.value)}
+                                    className="bg-white border border-slate-200 text-xs font-bold text-slate-700 px-3 py-1.5 rounded-lg outline-none focus:border-[#0055af]"
+                                />
+                            )}
+
+                            {filtroTipoPeriodo === 'Mes' && (
+                                <>
+                                    <select
+                                        value={filtroMes}
+                                        onChange={e => setFiltroMes(Number(e.target.value))}
+                                        className="bg-white border border-slate-200 text-xs font-bold text-slate-700 px-3 py-1.5 rounded-lg outline-none focus:border-[#0055af]"
+                                    >
+                                        {['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'].map((mes, idx) => (
+                                            <option key={idx + 1} value={idx + 1}>{mes}</option>
+                                        ))}
+                                    </select>
+                                    <select
+                                        value={filtroAnio}
+                                        onChange={e => setFiltroAnio(Number(e.target.value))}
+                                        className="bg-white border border-slate-200 text-xs font-bold text-slate-700 px-3 py-1.5 rounded-lg outline-none focus:border-[#0055af]"
+                                    >
+                                        {[2024, 2025, 2026, 2027].map(a => (
+                                            <option key={a} value={a}>{a}</option>
+                                        ))}
+                                    </select>
+                                </>
+                            )}
+
+                            {filtroTipoPeriodo === 'Año' && (
+                                <select
+                                    value={filtroAnio}
+                                    onChange={e => setFiltroAnio(Number(e.target.value))}
+                                    className="bg-white border border-slate-200 text-xs font-bold text-slate-700 px-3 py-1.5 rounded-lg outline-none focus:border-[#0055af]"
+                                >
+                                    {[2024, 2025, 2026, 2027].map(a => (
+                                        <option key={a} value={a}>{a}</option>
+                                    ))}
+                                </select>
+                            )}
                         </div>
                     </div>
 

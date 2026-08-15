@@ -4,7 +4,6 @@ import { supabase } from './lib/supabase';
 // Importación de Páginas de Autenticación
 import LoginPage from './modules/auth/LoginPage';
 import RolesPage from './modules/auth/RolesPage';
-import CuentaSuspendidaPage from './modules/auth/CuentaSuspendidaPage';
 
 // Importación del Layout y Módulos del CRM
 import MainLayout from './components/layout/MainLayout';
@@ -23,24 +22,6 @@ function App() {
   const [perfil, setPerfil] = useState(null);
   const [vistaActiva, setVistaActiva] = useState('Inicio');
   const [cargando, setCargando] = useState(true);
-
-  useEffect(() => {
-    // 1. Escuchar sesión actual al cargar
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSesion(session);
-      if (session) cargarPerfil(session.user.id, session.user.email);
-      else setCargando(false);
-    });
-
-    // 2. Escuchar cambios (cuando el usuario inicia o cierra sesión)
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSesion(session);
-      if (session) cargarPerfil(session.user.id, session.user.email);
-      else { setPerfil(null); setCargando(false); }
-    });
-
-    return () => subscription.unsubscribe();
-  }, []);
 
   // SOLUCIÓN: Pasamos el email directo de Google como plan B
   const cargarPerfil = async (userId, userEmail) => {
@@ -61,6 +42,24 @@ function App() {
     setCargando(false);
   };
 
+  useEffect(() => {
+    // 1. Escuchar sesión actual al cargar
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSesion(session);
+      if (session) cargarPerfil(session.user.id, session.user.email);
+      else setCargando(false);
+    });
+
+    // 2. Escuchar cambios (cuando el usuario inicia o cierra sesión)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSesion(session);
+      if (session) cargarPerfil(session.user.id, session.user.email);
+      else { setPerfil(null); setCargando(false); }
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
   const handleLogout = async () => {
     await supabase.auth.signOut();
   };
@@ -76,33 +75,6 @@ function App() {
   }
 
   if (!sesion) return <LoginPage />;
-
-  // BLOQUEO DE COBRANZA: Se muestra DESPUÉS del login a todos los usuarios
-  // excepto la cuenta maestra (la tuya). Es imposible llegar al CRM.
-  if (perfil && perfil.email !== 'novasolum.info@gmail.com') {
-    return <CuentaSuspendidaPage onLogout={handleLogout} />;
-  }
-
-  // LA LLAVE MAESTRA: Se salta el bloqueo si el correo es el tuyo
-  if (perfil && perfil.rol === 'Pendiente' && perfil.email !== 'novasolum.info@gmail.com') {
-    return (
-      <div className="h-screen bg-slate-100 flex flex-col items-center justify-center p-6">
-        <div className="bg-white p-8 rounded-2xl shadow-lg max-w-md w-full text-center border border-slate-200">
-          <div className="text-5xl mb-4">🔒</div>
-          <h2 className="text-xl font-black text-slate-800 mb-2">Cuenta en Revisión</h2>
-          <p className="text-slate-500 text-sm mb-6">
-            Has iniciado sesión correctamente, pero tu cuenta aún no tiene permisos asignados. Por favor, contacta al Super Administrador para que habilite tu acceso.
-          </p>
-          <button
-            onClick={handleLogout}
-            className="w-full py-2 bg-slate-800 text-white font-bold rounded-lg hover:bg-slate-900 transition-colors"
-          >
-            Cerrar Sesión
-          </button>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <MainLayout setVistaActiva={setVistaActiva} vistaActiva={vistaActiva} perfil={perfil} onLogout={handleLogout}>

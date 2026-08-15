@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, Fragment as FragmentProyecto } from 'react';
 import { supabase } from '../../../lib/supabase';
 import html2canvas from 'html2canvas';
 import {
@@ -15,6 +15,7 @@ export default function ProyectosPage() {
     const [serviciosSeleccionados, setServiciosSeleccionados] = useState([]);
     const [clientesSeleccionados, setClientesSeleccionados] = useState([]);
     const [filtroVista, setFiltroVista] = useState('Ambos');
+    const [proyectoDetalleAbierto, setProyectoDetalleAbierto] = useState(null);
 
     const graficosRef = useRef(null);
     const COLORES_PIE = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#ec4899', '#14b8a6', '#f43f5e'];
@@ -262,6 +263,77 @@ export default function ProyectosPage() {
 
         return participaciones;
     }, [finanzas]);
+
+    // 6b. Desglose detallado por proyecto (movimientos individuales + resumen)
+    const desglosePorProyecto = useMemo(() => {
+        const mapa = {};
+
+        finanzas.forEach(mov => {
+            if (!mov.cliente_id) return;
+            if (!mapa[mov.cliente_id]) {
+                mapa[mov.cliente_id] = {
+                    ingresos: [],
+                    gastos: [],
+                    adelantosPersonal: [],
+                    comprasInsumos: [],
+                    otrosGastos: [],
+                    totalIngresos: 0,
+                    totalGastos: 0,
+                    totalAdelantos: 0
+                };
+            }
+
+            const registro = {
+                fecha: mov.fecha_registro,
+                concepto: mov.concepto || '-',
+                categoria: mov.categoria || '-',
+                monto: Number(mov.monto),
+                banco: mov.banco || 'Efectivo',
+                id_operacion: mov.id_operacion || '-'
+            };
+
+            const esPagoPersonal = mov.tipo === 'Gasto' && (
+                mov.categoria === 'Nómina y Salarios' || 
+                (mov.servicio && mov.servicio.toLowerCase().startsWith('sueldo:'))
+            );
+
+            if (mov.tipo === 'Ingreso') {
+                mapa[mov.cliente_id].ingresos.push(registro);
+                mapa[mov.cliente_id].totalIngresos += registro.monto;
+            } else if (mov.tipo === 'Gasto') {
+                mapa[mov.cliente_id].gastos.push(registro);
+                mapa[mov.cliente_id].totalGastos += registro.monto;
+
+                if (esPagoPersonal) {
+                    mapa[mov.cliente_id].adelantosPersonal.push({
+                        ...registro,
+                        titular: mov.titular || 'Personal'
+                    });
+                    mapa[mov.cliente_id].totalAdelantos += registro.monto;
+                } else if (mov.categoria === 'Materiales/Insumos') {
+                    mapa[mov.cliente_id].comprasInsumos.push(registro);
+                } else {
+                    mapa[mov.cliente_id].otrosGastos.push(registro);
+                }
+            }
+        });
+
+        return mapa;
+    }, [finanzas]);
+
+    const formatearFechaDetalle = (fechaStr) => {
+        if (!fechaStr) return '-';
+        const match = String(fechaStr).match(/^(\d{4})-(\d{2})-(\d{2})/);
+        if (match) {
+            return `${parseInt(match[3], 10)}/${parseInt(match[2], 10)}/${match[1]}`;
+        }
+        const fecha = new Date(fechaStr);
+        return isNaN(fecha.getTime()) ? '-' : fecha.toLocaleDateString('es-BO');
+    };
+
+    const toggleDetalleProyecto = (clienteId) => {
+        setProyectoDetalleAbierto(prev => prev === clienteId ? null : clienteId);
+    };
 
     // 7. Balance por Cuentas Bancarias
     const balancePorCuentas = useMemo(() => {
@@ -694,32 +766,180 @@ export default function ProyectosPage() {
 
             {/* TABLA: Desglose Numérico */}
             <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
-                <div className="p-5 border-b border-slate-100 bg-slate-50 flex items-center gap-2">
-                    <span className="text-lg">📋</span>
-                    <h3 className="text-xs font-black text-slate-700 uppercase tracking-widest">Desglose Numérico de Proyectos</h3>
+                <div className="p-5 border-b border-slate-100 bg-slate-50 flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
+                    <div className="flex items-center gap-2">
+                        <span className="text-lg">📋</span>
+                        <h3 className="text-xs font-black text-slate-700 uppercase tracking-widest">Desglose de Rentabilidad por Proyecto</h3>
+                    </div>
+                    <p className="text-[10px] text-slate-400 font-bold">👆 Haz clic en "Ver Detalle" para revisar ingresos, gastos, adelantos al personal y compras de cada proyecto</p>
                 </div>
                 <div className="overflow-x-auto">
-                    <table className="w-full text-left text-sm text-slate-600">
+                    <table className="w-full text-left text-sm text-slate-600 min-w-[800px]">
                         <thead className="bg-white border-b border-slate-100 uppercase text-[10px] font-black text-slate-400">
                             <tr>
                                 <th className="px-6 py-4">Proyecto</th>
                                 <th className="px-6 py-4 text-center">Ingresos</th>
                                 <th className="px-6 py-4 text-center">Gastos</th>
                                 <th className="px-6 py-4 text-right">Rentabilidad</th>
+                                <th className="px-6 py-4 text-center">Detalle</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-50">
                             {datosFiltrados.length === 0 ? (
-                                <tr><td colSpan="4" className="p-6 text-center text-slate-400 italic">No hay proyectos seleccionados.</td></tr>
+                                <tr><td colSpan="5" className="p-6 text-center text-slate-400 italic">No hay proyectos seleccionados.</td></tr>
                             ) : (
-                                datosFiltrados.map((p) => (
-                                    <tr key={p.id}>
-                                        <td className="px-6 py-4 font-bold text-slate-800">{p.cliente}</td>
-                                        <td className="px-6 py-4 text-center font-bold text-emerald-600">Bs. {Math.round(p.ingresos).toLocaleString('es-BO')}</td>
-                                        <td className="px-6 py-4 text-center font-bold text-red-500">Bs. {Math.round(p.gastos).toLocaleString('es-BO')}</td>
-                                        <td className="px-6 py-4 text-right font-black text-blue-600">Bs. {Math.round(p.rentabilidad).toLocaleString('es-BO')}</td>
-                                    </tr>
-                                ))
+                                datosFiltrados.map((p) => {
+                                    const detalle = desglosePorProyecto[p.cliente_id];
+                                    const estaAbierto = proyectoDetalleAbierto === p.cliente_id;
+                                    const esGanancia = p.rentabilidad >= 0;
+                                    return (
+                                        <FragmentProyecto key={p.cliente_id}>
+                                            <tr className={`hover:bg-slate-50 transition-colors ${estaAbierto ? 'bg-blue-50/40' : ''}`}>
+                                                <td className="px-6 py-4">
+                                                    <div className="font-bold text-slate-800">{p.cliente}</div>
+                                                    {p.servicio && <div className="text-[9px] font-bold text-slate-400 mt-0.5">{p.servicio}</div>}
+                                                </td>
+                                                <td className="px-6 py-4 text-center font-bold text-emerald-600">Bs. {Math.round(p.ingresos).toLocaleString('es-BO')}</td>
+                                                <td className="px-6 py-4 text-center font-bold text-red-500">Bs. {Math.round(p.gastos).toLocaleString('es-BO')}</td>
+                                                <td className={`px-6 py-4 text-right font-black ${esGanancia ? 'text-blue-600' : 'text-rose-600'}`}>
+                                                    Bs. {Math.round(p.rentabilidad).toLocaleString('es-BO')}
+                                                    {detalle && detalle.totalAdelantos > 0 && (
+                                                        <div className="text-[9px] text-amber-500 font-bold mt-0.5">👥 Incluye Bs. {Math.round(detalle.totalAdelantos).toLocaleString('es-BO')} en personal</div>
+                                                    )}
+                                                </td>
+                                                <td className="px-6 py-4 text-center">
+                                                    <button
+                                                        onClick={() => toggleDetalleProyecto(p.cliente_id)}
+                                                        className={`px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider border transition-all shadow-sm ${estaAbierto
+                                                            ? 'bg-[#0055af] text-white border-[#0055af]'
+                                                            : 'bg-white text-[#0055af] border-[#0055af]/30 hover:bg-[#0055af] hover:text-white'
+                                                            }`}
+                                                    >
+                                                        {estaAbierto ? '▲ Ocultar' : '▼ Ver Detalle'}
+                                                    </button>
+                                                </td>
+                                            </tr>
+
+                                            {estaAbierto && (
+                                                <tr className="bg-slate-50/70 border-b border-slate-100">
+                                                    <td colSpan="5" className="px-6 py-6">
+                                                        {detalle ? (
+                                                            <div className="flex flex-col gap-5">
+                                                                {/* Resumen del proyecto */}
+                                                                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                                                    <div className="bg-white p-3 rounded-xl border border-slate-100 shadow-sm">
+                                                                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Ingresos</p>
+                                                                        <p className="text-lg font-black text-emerald-600 mt-0.5">Bs. {detalle.totalIngresos.toLocaleString('es-BO', { minimumFractionDigits: 2 })}</p>
+                                                                    </div>
+                                                                    <div className="bg-white p-3 rounded-xl border border-slate-100 shadow-sm">
+                                                                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Gastos</p>
+                                                                        <p className="text-lg font-black text-red-500 mt-0.5">Bs. {detalle.totalGastos.toLocaleString('es-BO', { minimumFractionDigits: 2 })}</p>
+                                                                    </div>
+                                                                    <div className="bg-white p-3 rounded-xl border border-slate-100 shadow-sm">
+                                                                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Adelantos Personal</p>
+                                                                        <p className="text-lg font-black text-amber-500 mt-0.5">Bs. {detalle.totalAdelantos.toLocaleString('es-BO', { minimumFractionDigits: 2 })}</p>
+                                                                    </div>
+                                                                    <div className={`bg-white p-3 rounded-xl border shadow-sm ${esGanancia ? 'border-blue-100' : 'border-rose-100'}`}>
+                                                                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Rentabilidad Neta</p>
+                                                                        <p className={`text-lg font-black mt-0.5 ${esGanancia ? 'text-blue-600' : 'text-rose-600'}`}>
+                                                                            Bs. {detalle.totalIngresos - detalle.totalGastos >= 0 ? '+' : ''}{(detalle.totalIngresos - detalle.totalGastos).toLocaleString('es-BO', { minimumFractionDigits: 2 })}
+                                                                        </p>
+                                                                    </div>
+                                                                </div>
+
+                                                                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                                                                    {/* Ingresos del proyecto */}
+                                                                    <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden flex flex-col">
+                                                                        <div className="px-4 py-2.5 bg-emerald-50 border-b border-emerald-100 flex items-center justify-between">
+                                                                            <span className="text-[10px] font-black text-emerald-700 uppercase tracking-widest">💰 Ingresos ({detalle.ingresos.length})</span>
+                                                                            <span className="text-[10px] font-black text-emerald-700">Bs. {detalle.totalIngresos.toLocaleString('es-BO', { minimumFractionDigits: 2 })}</span>
+                                                                        </div>
+                                                                        <div className="max-h-[240px] overflow-y-auto custom-scrollbar divide-y divide-slate-50">
+                                                                            {detalle.ingresos.length === 0 ? (
+                                                                                <p className="p-4 text-xs text-slate-400 italic">Sin ingresos registrados.</p>
+                                                                            ) : detalle.ingresos.map((ing, i) => (
+                                                                                <div key={`ing-${i}`} className="px-4 py-2.5 flex justify-between items-start gap-2">
+                                                                                    <div className="flex flex-col min-w-0">
+                                                                                        <span className="text-xs font-bold text-slate-700 break-words">{ing.concepto}</span>
+                                                                                        <span className="text-[9px] text-slate-400 font-medium">{formatearFechaDetalle(ing.fecha)} • {ing.banco}</span>
+                                                                                    </div>
+                                                                                    <span className="text-xs font-black text-emerald-600 shrink-0">Bs. {ing.monto.toLocaleString('es-BO', { minimumFractionDigits: 2 })}</span>
+                                                                                </div>
+                                                                            ))}
+                                                                        </div>
+                                                                    </div>
+
+                                                                    {/* Adelantos al personal */}
+                                                                    <div className="bg-white rounded-2xl border border-amber-200 shadow-sm overflow-hidden flex flex-col">
+                                                                        <div className="px-4 py-2.5 bg-amber-50 border-b border-amber-100 flex items-center justify-between">
+                                                                            <span className="text-[10px] font-black text-amber-700 uppercase tracking-widest">👥 Adelantos al Personal ({detalle.adelantosPersonal.length})</span>
+                                                                            <span className="text-[10px] font-black text-amber-700">Bs. {detalle.totalAdelantos.toLocaleString('es-BO', { minimumFractionDigits: 2 })}</span>
+                                                                        </div>
+                                                                        <div className="max-h-[240px] overflow-y-auto custom-scrollbar divide-y divide-slate-50">
+                                                                            {detalle.adelantosPersonal.length === 0 ? (
+                                                                                <p className="p-4 text-xs text-slate-400 italic">No se registraron pagos al personal en este proyecto.</p>
+                                                                            ) : detalle.adelantosPersonal.map((adv, i) => (
+                                                                                <div key={`adv-${i}`} className="px-4 py-2.5 flex justify-between items-start gap-2">
+                                                                                    <div className="flex flex-col min-w-0">
+                                                                                        <span className="text-xs font-bold text-slate-700">👤 {adv.titular}</span>
+                                                                                        <span className="text-[9px] text-slate-400 font-medium">{formatearFechaDetalle(adv.fecha)} • {adv.concepto}</span>
+                                                                                    </div>
+                                                                                    <span className="text-xs font-black text-amber-600 shrink-0">Bs. {adv.monto.toLocaleString('es-BO', { minimumFractionDigits: 2 })}</span>
+                                                                                </div>
+                                                                            ))}
+                                                                        </div>
+                                                                    </div>
+
+                                                                    {/* Compras / Insumos y otros gastos */}
+                                                                    <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden flex flex-col">
+                                                                        <div className="px-4 py-2.5 bg-rose-50 border-b border-rose-100 flex items-center justify-between">
+                                                                            <span className="text-[10px] font-black text-rose-700 uppercase tracking-widest">🛒 Compras / Insumos ({detalle.comprasInsumos.length})</span>
+                                                                            <span className="text-[10px] font-black text-rose-700">Bs. {detalle.comprasInsumos.reduce((a, c) => a + c.monto, 0).toLocaleString('es-BO', { minimumFractionDigits: 2 })}</span>
+                                                                        </div>
+                                                                        <div className="max-h-[150px] overflow-y-auto custom-scrollbar divide-y divide-slate-50">
+                                                                            {detalle.comprasInsumos.length === 0 ? (
+                                                                                <p className="p-4 text-xs text-slate-400 italic">Sin compras de insumos.</p>
+                                                                            ) : detalle.comprasInsumos.map((comp, i) => (
+                                                                                <div key={`comp-${i}`} className="px-4 py-2 flex justify-between items-start gap-2">
+                                                                                    <div className="flex flex-col min-w-0">
+                                                                                        <span className="text-[11px] font-bold text-slate-700 break-words">{comp.concepto}</span>
+                                                                                        <span className="text-[9px] text-slate-400 font-medium">{formatearFechaDetalle(comp.fecha)}</span>
+                                                                                    </div>
+                                                                                    <span className="text-[11px] font-black text-rose-600 shrink-0">Bs. {comp.monto.toLocaleString('es-BO', { minimumFractionDigits: 2 })}</span>
+                                                                                </div>
+                                                                            ))}
+                                                                        </div>
+
+                                                                        <div className="px-4 py-2.5 bg-slate-50 border-t border-slate-100">
+                                                                            <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">Otros Gastos ({detalle.otrosGastos.length})</p>
+                                                                            {detalle.otrosGastos.length === 0 ? (
+                                                                                <p className="text-[10px] text-slate-400 italic">Sin otros gastos.</p>
+                                                                            ) : (
+                                                                                <div className="max-h-[110px] overflow-y-auto custom-scrollbar divide-y divide-slate-100">
+                                                                                    {detalle.otrosGastos.map((otro, i) => (
+                                                                                        <div key={`otro-${i}`} className="py-1.5 flex justify-between items-start gap-2">
+                                                                                            <div className="flex flex-col min-w-0">
+                                                                                                <span className="text-[10px] font-bold text-slate-600 break-words">{otro.concepto}</span>
+                                                                                                <span className="text-[8px] text-slate-400">{formatearFechaDetalle(otro.fecha)} • {otro.categoria}</span>
+                                                                                            </div>
+                                                                                            <span className="text-[10px] font-black text-slate-500 shrink-0">Bs. {otro.monto.toLocaleString('es-BO', { minimumFractionDigits: 2 })}</span>
+                                                                                        </div>
+                                                                                    ))}
+                                                                                </div>
+                                                                            )}
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        ) : (
+                                                            <p className="text-xs text-slate-400 italic text-center py-6">Este proyecto no tiene movimientos financieros vinculados.</p>
+                                                        )}
+                                                    </td>
+                                                </tr>
+                                            )}
+                                        </FragmentProyecto>
+                                    );
+                                })
                             )}
                         </tbody>
                     </table>
