@@ -2,9 +2,14 @@ import { useState, useEffect, useMemo, useRef, Fragment as FragmentProyecto } fr
 import { supabase } from '../../../lib/supabase';
 import html2canvas from 'html2canvas';
 import {
-    BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+    BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, LabelList,
     ResponsiveContainer, PieChart, Pie, Cell
 } from 'recharts';
+
+const obtenerFechaHoyISO = () => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
 
 export default function ProyectosPage() {
     const [finanzas, setFinanzas] = useState([]);
@@ -16,6 +21,12 @@ export default function ProyectosPage() {
     const [clientesSeleccionados, setClientesSeleccionados] = useState([]);
     const [filtroVista, setFiltroVista] = useState('Ambos');
     const [proyectoDetalleAbierto, setProyectoDetalleAbierto] = useState(null);
+
+    // Filtro de período (mismo patrón que Finanzas): 'Día' | 'Mes' | 'Año'
+    const [filtroTipoPeriodo, setFiltroTipoPeriodo] = useState('Mes');
+    const [filtroFechaDia, setFiltroFechaDia] = useState(obtenerFechaHoyISO());
+    const [filtroMes, setFiltroMes] = useState(new Date().getMonth() + 1);
+    const [filtroAnio, setFiltroAnio] = useState(new Date().getFullYear());
 
     const graficosRef = useRef(null);
     const COLORES_PIE = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#ec4899', '#14b8a6', '#f43f5e'];
@@ -56,13 +67,42 @@ export default function ProyectosPage() {
         fetchDatosAnalytics();
     }, []);
 
+    // Filtrado por período (Día/Mes/Año) — alimenta TODA la analítica
+    const finanzasFiltradas = useMemo(() => {
+        return finanzas.filter(f => {
+            if (!f.fecha_registro) return false;
+            const match = String(f.fecha_registro).match(/^(\d{4})-(\d{2})-(\d{2})/);
+            let mes, anio, dia;
+            if (match) {
+                anio = Number(match[1]);
+                mes = Number(match[2]);
+                dia = Number(match[3]);
+            } else {
+                const fecha = new Date(f.fecha_registro);
+                anio = fecha.getFullYear();
+                mes = fecha.getMonth() + 1;
+                dia = fecha.getDate();
+            }
+
+            if (filtroTipoPeriodo === 'Día') {
+                const [fY, fM, fD] = String(filtroFechaDia).split('-').map(Number);
+                return anio === fY && mes === fM && dia === fD;
+            }
+            if (filtroTipoPeriodo === 'Año') {
+                return anio === Number(filtroAnio);
+            }
+            // Mes
+            return mes === Number(filtroMes) && anio === Number(filtroAnio);
+        });
+    }, [finanzas, filtroTipoPeriodo, filtroFechaDia, filtroMes, filtroAnio]);
+
     // 1. Agrupamiento de Proyectos (por Cliente)
     const { todosLosProyectos, listasFiltros } = useMemo(() => {
         const agrupados = {};
         const clientesMap = new Map();
         const serviciosSet = new Set();
 
-        finanzas.forEach(mov => {
+        finanzasFiltradas.forEach(mov => {
             if (!mov.cliente_id) return;
 
             const clienteId = mov.cliente_id;
@@ -80,7 +120,7 @@ export default function ProyectosPage() {
                 agrupados[clienteId] = {
                     id: clienteId,
                     cliente_id: clienteId,
-                    nombre: `${nombreCliente.split(' ')[0]} - ${servicioProyecto.substring(0, 15)}...`,
+                    nombre: `${nombreCliente} - ${servicioProyecto}`,
                     cliente: nombreCliente,
                     servicio: servicioProyecto,
                     ingresos: 0,
@@ -114,7 +154,7 @@ export default function ProyectosPage() {
                 servicios: Array.from(serviciosSet)
             }
         };
-    }, [finanzas]);
+    }, [finanzasFiltradas]);
 
     // Proyectos filtrados (Con fallback robusto para que no se quede vacío)
     const datosFiltrados = useMemo(() => {
@@ -130,8 +170,8 @@ export default function ProyectosPage() {
     // 2. Analítica de Servicios (Ganancia / Pérdida por Tipo de Servicio)
     const serviciosAnalytics = useMemo(() => {
         const services = {};
-        
-        finanzas.forEach(mov => {
+
+        finanzasFiltradas.forEach(mov => {
             let servicio = 'Otros / Operaciones';
             if (mov.cliente_id && mov.clientes?.trabajo_realizado) {
                 servicio = mov.clientes.trabajo_realizado;
@@ -162,12 +202,12 @@ export default function ProyectosPage() {
             ...s,
             rentabilidad: s.ingresos - s.gastos
         }));
-    }, [finanzas]);
+    }, [finanzasFiltradas]);
 
     // 3. Distribución de Ingresos
     const distribucionIngresos = useMemo(() => {
         const dist = {};
-        finanzas.forEach(mov => {
+        finanzasFiltradas.forEach(mov => {
             if (mov.tipo === 'Ingreso') {
                 let servicio = 'Otros';
                 if (mov.cliente_id && mov.clientes?.trabajo_realizado) {
@@ -179,19 +219,19 @@ export default function ProyectosPage() {
             }
         });
         return Object.keys(dist).map(name => ({ name, value: dist[name] })).filter(d => d.value > 0);
-    }, [finanzas]);
+    }, [finanzasFiltradas]);
 
     // 4. Distribución de Gastos
     const distribucionGastos = useMemo(() => {
         const dist = {};
-        finanzas.forEach(mov => {
+        finanzasFiltradas.forEach(mov => {
             if (mov.tipo === 'Gasto') {
                 const cat = mov.categoria || 'Otros Gastos';
                 dist[cat] = (dist[cat] || 0) + Number(mov.monto);
             }
         });
         return Object.keys(dist).map(name => ({ name, value: dist[name] })).filter(d => d.value > 0);
-    }, [finanzas]);
+    }, [finanzasFiltradas]);
 
     // 5. Analítica de Personal (Costo Sueldo vs Ingreso de Proyecto Asociado)
     const personalAnalytics = useMemo(() => {
@@ -205,7 +245,7 @@ export default function ProyectosPage() {
             };
         });
 
-        finanzas.forEach(mov => {
+        finanzasFiltradas.forEach(mov => {
             const esPagoPersonal = mov.tipo === 'Gasto' && (
                 mov.categoria === 'Nómina y Salarios' || 
                 (mov.servicio && mov.servicio.toLowerCase().startsWith('sueldo:'))
@@ -218,7 +258,7 @@ export default function ProyectosPage() {
                 data[titularName].costo += Number(mov.monto);
 
                 if (mov.cliente_id) {
-                    const totalIngresosProyecto = finanzas
+                    const totalIngresosProyecto = finanzasFiltradas
                         .filter(f => f.tipo === 'Ingreso' && f.cliente_id === mov.cliente_id)
                         .reduce((acc, curr) => acc + Number(curr.monto), 0);
                     data[titularName].ingresoAsociado += totalIngresosProyecto;
@@ -227,19 +267,19 @@ export default function ProyectosPage() {
         });
 
         return Object.values(data).filter(d => d.costo > 0 || d.ingresoAsociado > 0);
-    }, [finanzas, cuentas]);
+    }, [finanzasFiltradas, cuentas]);
 
     // 6. Relación Personal-Proyectos (Detalle)
     const relacionPersonalProyectos = useMemo(() => {
         const participaciones = [];
         const ingresosPorCliente = {};
-        finanzas.forEach(mov => {
+        finanzasFiltradas.forEach(mov => {
             if (mov.tipo === 'Ingreso' && mov.cliente_id) {
                 ingresosPorCliente[mov.cliente_id] = (ingresosPorCliente[mov.cliente_id] || 0) + Number(mov.monto);
             }
         });
 
-        finanzas.forEach(mov => {
+        finanzasFiltradas.forEach(mov => {
             const esPagoPersonal = mov.tipo === 'Gasto' && (
                 mov.categoria === 'Nómina y Salarios' || 
                 (mov.servicio && mov.servicio.toLowerCase().startsWith('sueldo:'))
@@ -262,13 +302,13 @@ export default function ProyectosPage() {
         });
 
         return participaciones;
-    }, [finanzas]);
+    }, [finanzasFiltradas]);
 
     // 6b. Desglose detallado por proyecto (movimientos individuales + resumen)
     const desglosePorProyecto = useMemo(() => {
         const mapa = {};
 
-        finanzas.forEach(mov => {
+        finanzasFiltradas.forEach(mov => {
             if (!mov.cliente_id) return;
             if (!mapa[mov.cliente_id]) {
                 mapa[mov.cliente_id] = {
@@ -319,7 +359,7 @@ export default function ProyectosPage() {
         });
 
         return mapa;
-    }, [finanzas]);
+    }, [finanzasFiltradas]);
 
     const formatearFechaDetalle = (fechaStr) => {
         if (!fechaStr) return '-';
@@ -343,7 +383,7 @@ export default function ProyectosPage() {
             const proyectosAlimentadores = new Set();
             const proyectosDebitadores = new Set();
 
-            finanzas.forEach(mov => {
+            finanzasFiltradas.forEach(mov => {
                 const coincideCuenta = 
                     (mov.numero_cuenta && cuenta.numero_cuenta && mov.numero_cuenta.trim() === cuenta.numero_cuenta.trim()) ||
                     (mov.banco && cuenta.banco && mov.banco.trim().toLowerCase() === cuenta.banco.trim().toLowerCase() && 
@@ -374,7 +414,7 @@ export default function ProyectosPage() {
                 debitadores: Array.from(proyectosDebitadores)
             };
         });
-    }, [cuentas, finanzas]);
+    }, [cuentas, finanzasFiltradas]);
 
     // Métricas Globales del Ecosistema
     const metricasGlobales = useMemo(() => {
@@ -382,7 +422,7 @@ export default function ProyectosPage() {
         let totalGastos = 0;
         let totalSalarios = 0;
 
-        finanzas.forEach(mov => {
+        finanzasFiltradas.forEach(mov => {
             if (mov.tipo === 'Ingreso') totalIngresos += Number(mov.monto);
             if (mov.tipo === 'Gasto') {
                 totalGastos += Number(mov.monto);
@@ -399,7 +439,7 @@ export default function ProyectosPage() {
             salarios: totalSalarios,
             margenPromedio: totalIngresos > 0 ? Math.round(((totalIngresos - totalGastos) / totalIngresos) * 100) : 0
         };
-    }, [finanzas]);
+    }, [finanzasFiltradas]);
 
     const exportarGraficosComoImagen = async () => {
         if (!graficosRef.current) return;
@@ -427,6 +467,7 @@ export default function ProyectosPage() {
                         {data.ingresos !== undefined && <p className="text-emerald-600 font-bold flex justify-between gap-4"><span>Ingresos:</span> <span>Bs. {Math.round(data.ingresos).toLocaleString('es-BO')}</span></p>}
                         {data.gastos !== undefined && <p className="text-red-500 font-bold flex justify-between gap-4"><span>Gastos:</span> <span>Bs. {Math.round(data.gastos).toLocaleString('es-BO')}</span></p>}
                         {data.rentabilidad !== undefined && <p className={`font-black flex justify-between gap-4 ${data.rentabilidad >= 0 ? 'text-blue-600' : 'text-rose-600'}`}><span>Neto:</span> <span>Bs. {Math.round(data.rentabilidad).toLocaleString('es-BO')}</span></p>}
+                        {data.margen !== undefined && <p className="text-[#0055af] font-bold flex justify-between gap-4"><span>Margen:</span> <span>{data.margen}%</span></p>}
                         {data.costo !== undefined && <p className="text-red-500 font-bold flex justify-between gap-4"><span>Costo (Salario):</span> <span>Bs. {Math.round(data.costo).toLocaleString('es-BO')}</span></p>}
                         {data.ingresoAsociado !== undefined && <p className="text-emerald-600 font-bold flex justify-between gap-4"><span>Ingreso Asociado:</span> <span>Bs. {Math.round(data.ingresoAsociado).toLocaleString('es-BO')}</span></p>}
                         {data.value !== undefined && <p className="text-slate-700 font-bold flex justify-between gap-4"><span>Total:</span> <span>Bs. {Math.round(data.value).toLocaleString('es-BO')}</span></p>}
@@ -435,6 +476,21 @@ export default function ProyectosPage() {
             );
         }
         return null;
+    };
+
+    // Label de % DENTRO del anillo del donut (oculta sectores < 5% para no saturar)
+    const renderLabelDonut = ({ cx, cy, midAngle, innerRadius, outerRadius, percent }) => {
+        const pct = Math.round(percent * 100);
+        if (pct < 5) return null;
+        const RADIAN = Math.PI / 180;
+        const radius = innerRadius + (outerRadius - innerRadius) * 0.62;
+        const x = cx + radius * Math.cos(-midAngle * RADIAN);
+        const y = cy + radius * Math.sin(-midAngle * RADIAN);
+        return (
+            <text x={x} y={y} fill="#ffffff" textAnchor="middle" dominantBaseline="central" fontSize={11} fontWeight={800} style={{ textShadow: '0 1px 2px rgba(0,0,0,0.35)' }}>
+                {pct}%
+            </text>
+        );
     };
 
     const toggleServicio = (servicio) => {
@@ -457,6 +513,50 @@ export default function ProyectosPage() {
                     <p className="text-sm text-slate-500 mt-1">Monitorea visualmente las ganancias, pérdidas, retorno de personal y distribución de flujo.</p>
                 </div>
                 <div className="relative z-10 flex flex-col sm:flex-row gap-3 w-full lg:w-auto">
+                    <div className="flex flex-wrap gap-2 items-center">
+                        <select value={filtroTipoPeriodo} onChange={(e) => setFiltroTipoPeriodo(e.target.value)}
+                            className="border-2 border-slate-100 rounded-xl px-4 py-3 bg-slate-50 hover:bg-slate-100 focus:border-[#0055af] outline-none font-bold text-slate-700 text-xs transition-colors cursor-pointer shadow-sm">
+                            <option value="Día">📆 Por Día</option>
+                            <option value="Mes">📅 Por Mes</option>
+                            <option value="Año">🗓️ Por Año</option>
+                        </select>
+
+                        {filtroTipoPeriodo === 'Día' && (
+                            <input
+                                type="date"
+                                value={filtroFechaDia}
+                                onChange={(e) => setFiltroFechaDia(e.target.value)}
+                                className="border-2 border-slate-100 rounded-xl px-4 py-3 bg-slate-50 hover:bg-slate-100 focus:border-[#0055af] outline-none font-bold text-slate-700 text-xs transition-colors cursor-pointer shadow-sm"
+                            />
+                        )}
+
+                        {filtroTipoPeriodo === 'Mes' && (
+                            <>
+                                <select value={filtroMes} onChange={(e) => setFiltroMes(Number(e.target.value))}
+                                    className="border-2 border-slate-100 rounded-xl px-4 py-3 bg-slate-50 hover:bg-slate-100 focus:border-[#0055af] outline-none font-bold text-slate-700 text-xs transition-colors cursor-pointer shadow-sm">
+                                    {['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'].map((mes, idx) => (
+                                        <option key={idx + 1} value={idx + 1}>{mes}</option>
+                                    ))}
+                                </select>
+                                <select value={filtroAnio} onChange={(e) => setFiltroAnio(Number(e.target.value))}
+                                    className="border-2 border-slate-100 rounded-xl px-4 py-3 bg-slate-50 hover:bg-slate-100 focus:border-[#0055af] outline-none font-bold text-slate-700 text-xs transition-colors cursor-pointer shadow-sm">
+                                    {[2024, 2025, 2026, 2027].map(a => (
+                                        <option key={a} value={a}>{a}</option>
+                                    ))}
+                                </select>
+                            </>
+                        )}
+
+                        {filtroTipoPeriodo === 'Año' && (
+                            <select value={filtroAnio} onChange={(e) => setFiltroAnio(Number(e.target.value))}
+                                className="border-2 border-slate-100 rounded-xl px-4 py-3 bg-slate-50 hover:bg-slate-100 focus:border-[#0055af] outline-none font-bold text-slate-700 text-xs transition-colors cursor-pointer shadow-sm">
+                                {[2024, 2025, 2026, 2027].map(a => (
+                                    <option key={a} value={a}>{a}</option>
+                                ))}
+                            </select>
+                        )}
+                    </div>
+
                     <select value={filtroVista} onChange={(e) => setFiltroVista(e.target.value)} className="border-2 border-slate-100 rounded-xl px-4 py-3 bg-slate-50 hover:bg-slate-100 focus:border-blue-500 outline-none font-bold text-slate-700 text-xs transition-colors cursor-pointer shadow-sm">
                         <option value="Ambos">📊 Vista: Todo</option>
                         <option value="Ingresos">📈 Vista: Solo Ingresos</option>
@@ -564,7 +664,7 @@ export default function ProyectosPage() {
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     {/* Gráfico de barras agrupado de servicios */}
                     <div className="lg:col-span-2 h-[350px]">
-                        <ResponsiveContainer width="100%" height="100%">
+                        <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                             <BarChart data={serviciosAnalytics} margin={{ top: 20, right: 10, left: -20, bottom: 20 }}>
                                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                                 <XAxis dataKey="nombre" axisLine={false} tickLine={false} tick={{ fontSize: 9, fill: '#475569', fontWeight: 'bold' }} />
@@ -620,9 +720,9 @@ export default function ProyectosPage() {
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-center">
                         <div className="h-[240px] w-full">
-                            <ResponsiveContainer width="100%" height="100%">
+                            <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                                 <PieChart>
-                                    <Pie data={distribucionIngresos} cx="50%" cy="50%" innerRadius={45} outerRadius={85} paddingAngle={3} dataKey="value" stroke="none">
+                                    <Pie data={distribucionIngresos} cx="50%" cy="50%" innerRadius={45} outerRadius={85} paddingAngle={3} dataKey="value" stroke="none" label={renderLabelDonut} labelLine={false}>
                                         {distribucionIngresos.map((entry, index) => <Cell key={`cell-${index}`} fill={COLORES_PIE[index % COLORES_PIE.length]} />)}
                                     </Pie>
                                     <Tooltip content={<CustomTooltip />} />
@@ -655,9 +755,9 @@ export default function ProyectosPage() {
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-center">
                         <div className="h-[240px] w-full">
-                            <ResponsiveContainer width="100%" height="100%">
+                            <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                                 <PieChart>
-                                    <Pie data={distribucionGastos} cx="50%" cy="50%" innerRadius={45} outerRadius={85} paddingAngle={3} dataKey="value" stroke="none">
+                                    <Pie data={distribucionGastos} cx="50%" cy="50%" innerRadius={45} outerRadius={85} paddingAngle={3} dataKey="value" stroke="none" label={renderLabelDonut} labelLine={false}>
                                         {distribucionGastos.map((entry, index) => <Cell key={`cell-${index}`} fill={COLORES_PIE[(index + 3) % COLORES_PIE.length]} />)}
                                     </Pie>
                                     <Tooltip content={<CustomTooltip />} />
@@ -701,15 +801,19 @@ export default function ProyectosPage() {
                                 Registre nóminas asociadas a clientes en "Finanzas" para ver el retorno de personal
                             </div>
                         ) : (
-                            <ResponsiveContainer width="100%" height="100%">
+                            <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                                 <BarChart data={personalAnalytics} margin={{ top: 20, right: 10, left: -20, bottom: 20 }}>
                                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                                     <XAxis dataKey="nombre" axisLine={false} tickLine={false} tick={{ fontSize: 9, fill: '#475569', fontWeight: 'bold' }} />
                                     <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10 }} />
                                     <Tooltip content={<CustomTooltip />} />
                                     <Legend verticalAlign="top" wrapperStyle={{ paddingBottom: '15px', fontSize: '11px' }} />
-                                    <Bar dataKey="costo" name="Costo (Sueldo Pagado)" fill="#f59e0b" radius={[4, 4, 0, 0]} />
-                                    <Bar dataKey="ingresoAsociado" name="Ingreso Proyecto Asociado" fill="#10b981" radius={[4, 4, 0, 0]} />
+                                    <Bar dataKey="costo" name="Costo (Sueldo Pagado)" fill="#f59e0b" radius={[4, 4, 0, 0]}>
+                                        <LabelList dataKey="costo" position="top" formatter={(v) => `Bs. ${Math.round(v).toLocaleString('es-BO')}`} style={{ fontSize: 9, fontWeight: 700, fill: '#d97706' }} />
+                                    </Bar>
+                                    <Bar dataKey="ingresoAsociado" name="Ingreso Proyecto Asociado" fill="#10b981" radius={[4, 4, 0, 0]}>
+                                        <LabelList dataKey="ingresoAsociado" position="top" formatter={(v) => `Bs. ${Math.round(v).toLocaleString('es-BO')}`} style={{ fontSize: 9, fontWeight: 700, fill: '#059669' }} />
+                                    </Bar>
                                 </BarChart>
                             </ResponsiveContainer>
                         )}
@@ -747,16 +851,35 @@ export default function ProyectosPage() {
                             No hay proyectos que coincidan con la selección de filtros actual.
                         </div>
                     ) : (
-                        <div style={{ width: `${Math.max(100, datosFiltrados.length * 15)}%`, minWidth: '100%', height: '100%' }}>
-                            <ResponsiveContainer width="100%" height="100%">
-                                <BarChart data={datosFiltrados} margin={{ top: 20, right: 10, left: -20, bottom: 80 }}>
+                        <div style={{ width: `${Math.max(100, datosFiltrados.length * 22)}%`, minWidth: '100%', height: '100%' }}>
+                            <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+                                <BarChart data={datosFiltrados} margin={{ top: 30, right: 10, left: -20, bottom: 10 }}>
                                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                                    <XAxis dataKey="nombre" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#475569', fontWeight: 'bold' }} interval={0} angle={-45} textAnchor="end" />
+                                    <XAxis dataKey="nombre" axisLine={false} tickLine={false} interval={0} height={70}
+                                        tick={({ x, y, payload }) => {
+                                            const partes = String(payload.value).split(' - ');
+                                            const cliente = partes[0] || payload.value;
+                                            const servicio = partes.slice(1).join(' - ') || '';
+                                            return (
+                                                <g transform={`translate(${x},${y})`}>
+                                                    <text x={0} y={0} dy={10} textAnchor="middle" fill="#475569" fontSize={9} fontWeight="bold">
+                                                        {cliente.length > 22 ? cliente.slice(0, 22) + '…' : cliente}
+                                                    </text>
+                                                    <text x={0} y={0} dy={24} textAnchor="middle" fill="#94a3b8" fontSize={8}>
+                                                        {servicio.length > 22 ? servicio.slice(0, 22) + '…' : servicio}
+                                                    </text>
+                                                </g>
+                                            );
+                                        }} />
                                     <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10 }} />
                                     <Tooltip content={<CustomTooltip />} cursor={{ fill: '#f8fafc', radius: 8 }} />
                                     <Legend verticalAlign="top" wrapperStyle={{ paddingBottom: '20px' }} />
-                                    {(filtroVista === 'Ambos' || filtroVista === 'Ingresos') && <Bar dataKey="ingresos" name="Ingresos" fill="#10b981" radius={[4, 4, 0, 0]} />}
-                                    {(filtroVista === 'Ambos' || filtroVista === 'Gastos') && <Bar dataKey="gastos" name="Gastos" fill="#ef4444" radius={[4, 4, 0, 0]} />}
+                                    {(filtroVista === 'Ambos' || filtroVista === 'Ingresos') && <Bar dataKey="ingresos" name="Ingresos" fill="#10b981" radius={[4, 4, 0, 0]}>
+                                        <LabelList dataKey="ingresos" position="top" formatter={(v) => `Bs. ${Math.round(v).toLocaleString('es-BO')}`} style={{ fontSize: 9, fontWeight: 700, fill: '#059669' }} />
+                                    </Bar>}
+                                    {(filtroVista === 'Ambos' || filtroVista === 'Gastos') && <Bar dataKey="gastos" name="Gastos" fill="#ef4444" radius={[4, 4, 0, 0]}>
+                                        <LabelList dataKey="gastos" position="top" formatter={(v) => `Bs. ${Math.round(v).toLocaleString('es-BO')}`} style={{ fontSize: 9, fontWeight: 700, fill: '#dc2626' }} />
+                                    </Bar>}
                                 </BarChart>
                             </ResponsiveContainer>
                         </div>
