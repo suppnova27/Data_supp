@@ -25,6 +25,7 @@ export default function ProyectosPage() {
     // Filtro de período (mismo patrón que Finanzas): 'Día' | 'Mes' | 'Año'
     const [filtroTipoPeriodo, setFiltroTipoPeriodo] = useState('Mes');
     const [filtroFechaDia, setFiltroFechaDia] = useState(obtenerFechaHoyISO());
+    const [filtroFechaDiaHasta, setFiltroFechaDiaHasta] = useState(obtenerFechaHoyISO());
     const [filtroMes, setFiltroMes] = useState(new Date().getMonth() + 1);
     const [filtroAnio, setFiltroAnio] = useState(new Date().getFullYear());
 
@@ -85,8 +86,15 @@ export default function ProyectosPage() {
             }
 
             if (filtroTipoPeriodo === 'Día') {
-                const [fY, fM, fD] = String(filtroFechaDia).split('-').map(Number);
-                return anio === fY && mes === fM && dia === fD;
+                // Rango de fechas: desde hasta (ambos inclusive). Si desde > hasta se invierte automáticamente.
+                const desde = String(filtroFechaDia).split('-').map(Number);
+                const hasta = String(filtroFechaDiaHasta).split('-').map(Number);
+                const [inicio, fin] = (filtroFechaDia <= filtroFechaDiaHasta) ? [desde, hasta] : [hasta, desde];
+                const fechaReg = [anio, mes, dia];
+                return (
+                    (fechaReg[0] > inicio[0] || (fechaReg[0] === inicio[0] && (fechaReg[1] > inicio[1] || (fechaReg[1] === inicio[1] && fechaReg[2] >= inicio[2])))) &&
+                    (fechaReg[0] < fin[0] || (fechaReg[0] === fin[0] && (fechaReg[1] < fin[1] || (fechaReg[1] === fin[1] && fechaReg[2] <= fin[2]))))
+                );
             }
             if (filtroTipoPeriodo === 'Año') {
                 return anio === Number(filtroAnio);
@@ -94,7 +102,7 @@ export default function ProyectosPage() {
             // Mes
             return mes === Number(filtroMes) && anio === Number(filtroAnio);
         });
-    }, [finanzas, filtroTipoPeriodo, filtroFechaDia, filtroMes, filtroAnio]);
+    }, [finanzas, filtroTipoPeriodo, filtroFechaDia, filtroFechaDiaHasta, filtroMes, filtroAnio]);
 
     // 1. Agrupamiento de Proyectos (por Cliente)
     const { todosLosProyectos, listasFiltros } = useMemo(() => {
@@ -522,12 +530,23 @@ export default function ProyectosPage() {
                         </select>
 
                         {filtroTipoPeriodo === 'Día' && (
-                            <input
-                                type="date"
-                                value={filtroFechaDia}
-                                onChange={(e) => setFiltroFechaDia(e.target.value)}
-                                className="border-2 border-slate-100 rounded-xl px-4 py-3 bg-slate-50 hover:bg-slate-100 focus:border-[#0055af] outline-none font-bold text-slate-700 text-xs transition-colors cursor-pointer shadow-sm"
-                            />
+                            <>
+                                <input
+                                    type="date"
+                                    value={filtroFechaDia}
+                                    onChange={(e) => setFiltroFechaDia(e.target.value)}
+                                    title="Desde"
+                                    className="border-2 border-slate-100 rounded-xl px-4 py-3 bg-slate-50 hover:bg-slate-100 focus:border-[#0055af] outline-none font-bold text-slate-700 text-xs transition-colors cursor-pointer shadow-sm"
+                                />
+                                <span className="text-[10px] font-black text-slate-400 uppercase">a</span>
+                                <input
+                                    type="date"
+                                    value={filtroFechaDiaHasta}
+                                    onChange={(e) => setFiltroFechaDiaHasta(e.target.value)}
+                                    title="Hasta"
+                                    className="border-2 border-slate-100 rounded-xl px-4 py-3 bg-slate-50 hover:bg-slate-100 focus:border-[#0055af] outline-none font-bold text-slate-700 text-xs transition-colors cursor-pointer shadow-sm"
+                                />
+                            </>
                         )}
 
                         {filtroTipoPeriodo === 'Mes' && (
