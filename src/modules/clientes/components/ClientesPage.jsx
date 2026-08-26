@@ -150,14 +150,37 @@ export default function ClientesPage() {
             estado: esClienteDirecto ? 'Cliente' : (formData.estado && COLUMNAS_KANBAN.includes(formData.estado) ? formData.estado : 'Nuevo Lead')
         };
 
-        const accion = editandoId
-            ? supabase.from('clientes').update(payload).eq('id', editandoId)
-            : supabase.from('clientes').insert([payload]);
+        let error = null;
+        let degradado = false;
 
-        const { error } = await accion;
+        const guardar = (datos) => editandoId
+            ? supabase.from('clientes').update(datos).eq('id', editandoId)
+            : supabase.from('clientes').insert([datos]);
+
+        const res = await guardar(payload);
+        error = res.error;
+
+        // Degradación elegante: si la BD aún no tiene las columnas nuevas
+        // (migración SQL pendiente), reintenta guardando sin ellas.
+        if (error && (error.code === '42703' || /column/i.test(error.message || ''))) {
+            const sinNuevos = { ...payload };
+            delete sinNuevos.origen;
+            delete sinNuevos.tipo_registro;
+            const res2 = await guardar(sinNuevos);
+            error = res2.error;
+            degradado = !error;
+        }
+
         setGuardando(false);
-        if (!error) { setModalAbierto(false); fetchClientes(); }
-        else alert('Error al guardar: ' + error.message);
+        if (error) {
+            alert('Error al guardar: ' + error.message);
+        } else {
+            if (degradado) {
+                alert('✅ Guardado sin "Origen/Tipo".\nEjecuta la migración SQL 20260824000000 en Supabase para habilitar esos campos.');
+            }
+            setModalAbierto(false);
+            fetchClientes();
+        }
     };
 
     const cambiarEstadoKanban = async (id, nuevoEstado) => {
