@@ -11,14 +11,28 @@ const obtenerFechaHoyISO = () => {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 
+// Servicio del MOVIMIENTO según la hoja finanzas (nunca del registro inicial del cliente)
+const resolverServicioMov = (mov) => {
+    if (mov.servicio && !String(mov.servicio).toLowerCase().startsWith('sueldo:')) return mov.servicio;
+    return null;
+};
+
+// Clave de proyecto: explícito si tiene proyecto_id; si no, se agrupa por cliente+servicio
+const claveProyectoDeMov = (mov) => {
+    if (mov.proyecto_id) return `p:${mov.proyecto_id}`;
+    const serv = resolverServicioMov(mov) || 'Sin servicio';
+    return `s:${mov.cliente_id}|${serv}`;
+};
+
 export default function ProyectosPage() {
     const [finanzas, setFinanzas] = useState([]);
     const [cuentas, setCuentas] = useState([]);
     const [cargando, setCargando] = useState(true);
     const [exportandoImg, setExportandoImg] = useState(false);
 
-    const [serviciosSeleccionados, setServiciosSeleccionados] = useState([]);
-    const [clientesSeleccionados, setClientesSeleccionados] = useState([]);
+    // Flujo de análisis: primero el CLIENTE, luego sus proyectos, servicio y rentabilidad
+    const [clienteAnalisis, setClienteAnalisis] = useState('Todos');
+    const [proyectosCatalogo, setProyectosCatalogo] = useState({});
     const [filtroVista, setFiltroVista] = useState('Ambos');
     const [proyectoDetalleAbierto, setProyectoDetalleAbierto] = useState(null);
 
@@ -35,34 +49,29 @@ export default function ProyectosPage() {
     useEffect(() => {
         const fetchDatosAnalytics = async () => {
             setCargando(true);
-            const [resFinanzas, resCuentas] = await Promise.all([
+            const [resFinanzas, resCuentas, resProyectos] = await Promise.all([
                 supabase
                     .from('finanzas')
-                    .select(`*, clientes (nombres, apellido_paterno, trabajo_realizado)`),
+                    .select(`*, clientes (nombres, apellido_paterno)`),
                 supabase
                     .from('directorio_cuentas')
-                    .select(`*`)
+                    .select(`*`),
+                supabase
+                    .from('proyectos')
+                    .select(`id, nombre`)
+                    .then(r => r)
+                    .catch(() => ({ data: null }))
             ]);
 
             if (resFinanzas.data) {
                 setFinanzas(resFinanzas.data);
-
-                // Inicializar filtros seleccionados por defecto con todos los datos
-                const clientIds = [];
-                const serviceNames = new Set();
-                resFinanzas.data.forEach(mov => {
-                    if (mov.cliente_id) {
-                        clientIds.push(mov.cliente_id);
-                        const sName = mov.clientes?.trabajo_realizado || mov.servicio || 'Servicio';
-                        if (sName && !sName.toLowerCase().startsWith('sueldo:')) {
-                            serviceNames.add(sName);
-                        }
-                    }
-                });
-                setClientesSeleccionados(Array.from(new Set(clientIds)));
-                setServiciosSeleccionados(Array.from(serviceNames));
             }
             if (resCuentas.data) setCuentas(resCuentas.data);
+
+            const mapaProyectos = {};
+            (resProyectos.data || []).forEach(p => { mapaProyectos[p.id] = p.nombre; });
+            setProyectosCatalogo(mapaProyectos);
+
             setCargando(false);
         };
         fetchDatosAnalytics();
@@ -104,76 +113,86 @@ export default function ProyectosPage() {
         });
     }, [finanzas, filtroTipoPeriodo, filtroFechaDia, filtroFechaDiaHasta, filtroMes, filtroAnio]);
 
-    // 1. Agrupamiento de Proyectos (por Cliente)
+    // 1. Agrupamiento de Proyectos: cada proyecto agrupa sus movimientos.
+    //    - Con proyecto_id explícito: un proyecto por registro de la tabla `proyectos`.
+    //    - Sin él (histórico): se agrupa por cliente + servicio del movimiento.
     const { todosLosProyectos, listasFiltros } = useMemo(() => {
         const agrupados = {};
         const clientesMap = new Map();
-        const serviciosSet = new Set();
 
         finanzasFiltradas.forEach(mov => {
-            if (!mov.cliente_id) return;
+            if (!mov.cliente_id && !mov.proyecto_id) return;
 
-            const clienteId = mov.cliente_id;
-            const nombreCliente = mov.clientes 
+            const clienteNombre = mov.clientes 
                 ? `${mov.clientes.nombres || ''} ${mov.clientes.apellido_paterno || ''}`.trim() 
                 : 'Cliente Sin Nombre';
-            const servicioProyecto = mov.clientes?.trabajo_realizado || mov.servicio || 'Servicio';
+            const servicioMov = resolverServicioMov(mov);
 
-            clientesMap.set(clienteId, nombreCliente);
-            if (servicioProyecto && !servicioProyecto.toLowerCase().startsWith('sueldo:')) {
-                serviciosSet.add(servicioProyecto);
-            }
+            if (mov.cliente_id) clientesMap.set(mov.cliente_id, clienteNombre);
 
-            if (!agrupados[clienteId]) {
-                agrupados[clienteId] = {
-                    id: clienteId,
-                    cliente_id: clienteId,
-                    nombre: `${nombreCliente} - ${servicioProyecto}`,
-                    cliente: nombreCliente,
-                    servicio: servicioProyecto,
+            const key = claveProyectoDeMov(mov);
+
+            if (!agrupados[key]) {
+                agrupados[key] = {
+                    key,
+                    proyecto_id: mov.proyecto_id || null,
+                    proyecto_nombre: mov.proyecto_id ? (proyectosCatalogo[mov.proyecto_id] || 'Proyecto') : '',
+                    cliente_id: mov.cliente_id,
+                    cliente: clienteNombre,
+                    servicio: servicioMov || 'Servicio por definir',
                     ingresos: 0,
                     gastos: 0,
-                    insumos: [],
-                    ultimoMovimiento: 0
+                    insumos: []
                 };
             }
 
+            if (servicioMov && !agrupados[key].proyecto_id) {
+                agrupados[key].servicio = servicioMov;
+            }
+
             if (mov.tipo === 'Ingreso') {
-                agrupados[clienteId].ingresos += Number(mov.monto);
+                agrupados[key].ingresos += Number(mov.monto);
             }
             if (mov.tipo === 'Gasto') {
-                agrupados[clienteId].gastos += Number(mov.monto);
+                agrupados[key].gastos += Number(mov.monto);
                 if (mov.categoria === 'Materiales/Insumos') {
-                    agrupados[clienteId].insumos.push(mov.concepto);
+                    agrupados[key].insumos.push(mov.concepto);
                 }
             }
         });
 
         const proyectos = Object.values(agrupados).map(p => ({
             ...p,
+            nombre: p.proyecto_nombre ? `${p.cliente} · ${p.proyecto_nombre}` : `${p.cliente} · ${p.servicio}`,
             rentabilidad: p.ingresos - p.gastos,
             margen: p.ingresos > 0 ? Math.round(((p.ingresos - p.gastos) / p.ingresos) * 100) : 0
         }));
 
         return {
-            todosLosProyectos: proyectos,
+            todosLosProyectos: proyectos.sort((a, b) => b.rentabilidad - a.rentabilidad),
             listasFiltros: {
-                clientes: Array.from(clientesMap, ([id, nombre]) => ({ id, nombre })),
-                servicios: Array.from(serviciosSet)
+                clientes: Array.from(clientesMap, ([id, nombre]) => ({ id, nombre }))
             }
         };
-    }, [finanzasFiltradas]);
+    }, [finanzasFiltradas, proyectosCatalogo]);
 
-    // Proyectos filtrados (Con fallback robusto para que no se quede vacío)
+    // Proyectos filtrados según el CLIENTE elegido en el flujo de análisis
     const datosFiltrados = useMemo(() => {
-        const fallbackServicios = serviciosSeleccionados.length === 0;
-        const fallbackClientes = clientesSeleccionados.length === 0;
+        if (clienteAnalisis === 'Todos') return todosLosProyectos;
+        return todosLosProyectos.filter(p => p.cliente_id === clienteAnalisis);
+    }, [todosLosProyectos, clienteAnalisis]);
 
-        return todosLosProyectos.filter(p =>
-            (fallbackServicios || serviciosSeleccionados.includes(p.servicio)) &&
-            (fallbackClientes || clientesSeleccionados.includes(p.cliente_id))
-        );
-    }, [todosLosProyectos, serviciosSeleccionados, clientesSeleccionados]);
+    // Resumen del flujo: ¿el cliente tiene un proyecto único o múltiples?
+    const resumenClienteAnalisis = useMemo(() => {
+        if (clienteAnalisis === 'Todos') return null;
+        const nombreCliente = listasFiltros.clientes.find(c => c.id === clienteAnalisis)?.nombre
+            || datosFiltrados[0]?.cliente || '';
+        return {
+            cliente: nombreCliente,
+            cantidad: datosFiltrados.length,
+            esUnico: datosFiltrados.length === 1
+        };
+    }, [datosFiltrados, clienteAnalisis, listasFiltros.clientes]);
 
     // 2. Analítica de Servicios (Ganancia / Pérdida por Tipo de Servicio)
     const serviciosAnalytics = useMemo(() => {
@@ -181,14 +200,8 @@ export default function ProyectosPage() {
 
         finanzasFiltradas.forEach(mov => {
             let servicio = 'Otros / Operaciones';
-            if (mov.cliente_id && mov.clientes?.trabajo_realizado) {
-                servicio = mov.clientes.trabajo_realizado;
-            } else if (mov.servicio) {
-                if (mov.servicio.toLowerCase().startsWith('sueldo:')) {
-                    return;
-                }
-                servicio = mov.servicio;
-            }
+            const s = resolverServicioMov(mov);
+            if (s) servicio = s;
 
             if (!services[servicio]) {
                 services[servicio] = {
@@ -217,12 +230,7 @@ export default function ProyectosPage() {
         const dist = {};
         finanzasFiltradas.forEach(mov => {
             if (mov.tipo === 'Ingreso') {
-                let servicio = 'Otros';
-                if (mov.cliente_id && mov.clientes?.trabajo_realizado) {
-                    servicio = mov.clientes.trabajo_realizado;
-                } else if (mov.servicio) {
-                    servicio = mov.servicio;
-                }
+                const servicio = resolverServicioMov(mov) || 'Otros';
                 dist[servicio] = (dist[servicio] || 0) + Number(mov.monto);
             }
         });
@@ -245,21 +253,25 @@ export default function ProyectosPage() {
     const personalAnalytics = useMemo(() => {
         const data = {};
 
+        const personalMap = {};
         cuentas.filter(c => c.tipo === 'Personal').forEach(p => {
             data[p.alias] = {
                 nombre: p.alias,
                 costo: 0,
                 ingresoAsociado: 0
             };
+            if (p.id) personalMap[p.id] = p.titular || p.alias;
         });
 
         finanzasFiltradas.forEach(mov => {
             const esPagoPersonal = mov.tipo === 'Gasto' && (
                 mov.categoria === 'Nómina y Salarios' || 
+                mov.personal_id ||
                 (mov.servicio && mov.servicio.toLowerCase().startsWith('sueldo:'))
             );
-            if (esPagoPersonal && mov.titular) {
-                const titularName = mov.titular;
+            if (esPagoPersonal) {
+                const titularName = mov.titular || personalMap[mov.personal_id];
+                if (!titularName) return;
                 if (!data[titularName]) {
                     data[titularName] = { nombre: titularName, costo: 0, ingresoAsociado: 0 };
                 }
@@ -289,14 +301,17 @@ export default function ProyectosPage() {
 
         finanzasFiltradas.forEach(mov => {
             const esPagoPersonal = mov.tipo === 'Gasto' && (
-                mov.categoria === 'Nómina y Salarios' || 
+                mov.categoria === 'Nómina y Salarios' ||
+                mov.personal_id ||
                 (mov.servicio && mov.servicio.toLowerCase().startsWith('sueldo:'))
             );
             if (esPagoPersonal && mov.titular) {
                 const totalIngresosProyecto = mov.cliente_id ? (ingresosPorCliente[mov.cliente_id] || 0) : 0;
-                const nombreProyecto = mov.clientes 
-                    ? `${mov.clientes.nombres} ${mov.clientes.apellido_paterno || ''} - ${mov.clientes.trabajo_realizado || mov.servicio || 'Servicio'}`.trim()
-                    : 'Gasto General / Sin Proyecto';
+                const nombreProyecto = mov.proyecto_id
+                    ? (proyectosCatalogo[mov.proyecto_id] || 'Proyecto')
+                    : mov.clientes 
+                        ? `${mov.clientes.nombres} ${mov.clientes.apellido_paterno || ''}`.trim()
+                        : 'Gasto General / Sin Proyecto';
                 
                 participaciones.push({
                     id: mov.id,
@@ -310,16 +325,18 @@ export default function ProyectosPage() {
         });
 
         return participaciones;
-    }, [finanzasFiltradas]);
+    }, [finanzasFiltradas, proyectosCatalogo]);
 
-    // 6b. Desglose detallado por proyecto (movimientos individuales + resumen)
+    // 6b. Desglose detallado por PROYECTO (movimientos individuales + resumen)
     const desglosePorProyecto = useMemo(() => {
         const mapa = {};
 
         finanzasFiltradas.forEach(mov => {
-            if (!mov.cliente_id) return;
-            if (!mapa[mov.cliente_id]) {
-                mapa[mov.cliente_id] = {
+            if (!mov.cliente_id && !mov.proyecto_id) return;
+
+            const key = claveProyectoDeMov(mov);
+            if (!mapa[key]) {
+                mapa[key] = {
                     ingresos: [],
                     gastos: [],
                     adelantosPersonal: [],
@@ -342,26 +359,27 @@ export default function ProyectosPage() {
 
             const esPagoPersonal = mov.tipo === 'Gasto' && (
                 mov.categoria === 'Nómina y Salarios' || 
+                mov.personal_id ||
                 (mov.servicio && mov.servicio.toLowerCase().startsWith('sueldo:'))
             );
 
             if (mov.tipo === 'Ingreso') {
-                mapa[mov.cliente_id].ingresos.push(registro);
-                mapa[mov.cliente_id].totalIngresos += registro.monto;
+                mapa[key].ingresos.push(registro);
+                mapa[key].totalIngresos += registro.monto;
             } else if (mov.tipo === 'Gasto') {
-                mapa[mov.cliente_id].gastos.push(registro);
-                mapa[mov.cliente_id].totalGastos += registro.monto;
+                mapa[key].gastos.push(registro);
+                mapa[key].totalGastos += registro.monto;
 
                 if (esPagoPersonal) {
-                    mapa[mov.cliente_id].adelantosPersonal.push({
+                    mapa[key].adelantosPersonal.push({
                         ...registro,
                         titular: mov.titular || 'Personal'
                     });
-                    mapa[mov.cliente_id].totalAdelantos += registro.monto;
+                    mapa[key].totalAdelantos += registro.monto;
                 } else if (mov.categoria === 'Materiales/Insumos') {
-                    mapa[mov.cliente_id].comprasInsumos.push(registro);
+                    mapa[key].comprasInsumos.push(registro);
                 } else {
-                    mapa[mov.cliente_id].otrosGastos.push(registro);
+                    mapa[key].otrosGastos.push(registro);
                 }
             }
         });
@@ -399,9 +417,11 @@ export default function ProyectosPage() {
 
                 if (coincideCuenta) {
                     const montoNum = Number(mov.monto);
-                    const nombreProyecto = mov.clientes 
-                        ? `${mov.clientes.nombres} - ${mov.clientes.trabajo_realizado || mov.servicio || 'Servicio'}`
-                        : null;
+                    const nombreProyecto = mov.proyecto_id
+                        ? (proyectosCatalogo[mov.proyecto_id] || 'Proyecto')
+                        : mov.clientes
+                            ? `${mov.clientes.nombres} · ${resolverServicioMov(mov) || 'Servicio'}`
+                            : null;
 
                     if (mov.tipo === 'Ingreso') {
                         ingresos += montoNum;
@@ -422,7 +442,7 @@ export default function ProyectosPage() {
                 debitadores: Array.from(proyectosDebitadores)
             };
         });
-    }, [cuentas, finanzasFiltradas]);
+    }, [cuentas, finanzasFiltradas, proyectosCatalogo]);
 
     // Métricas Globales del Ecosistema
     const metricasGlobales = useMemo(() => {
@@ -434,7 +454,7 @@ export default function ProyectosPage() {
             if (mov.tipo === 'Ingreso') totalIngresos += Number(mov.monto);
             if (mov.tipo === 'Gasto') {
                 totalGastos += Number(mov.monto);
-                if (mov.categoria === 'Nómina y Salarios' || (mov.servicio && mov.servicio.toLowerCase().startsWith('sueldo:'))) {
+                if (mov.categoria === 'Nómina y Salarios' || mov.personal_id || (mov.servicio && mov.servicio.toLowerCase().startsWith('sueldo:'))) {
                     totalSalarios += Number(mov.monto);
                 }
             }
@@ -501,11 +521,9 @@ export default function ProyectosPage() {
         );
     };
 
-    const toggleServicio = (servicio) => {
-        setServiciosSeleccionados(prev => prev.includes(servicio) ? prev.filter(s => s !== servicio) : [...prev, servicio]);
-    };
-    const toggleCliente = (id) => {
-        setClientesSeleccionados(prev => prev.includes(id) ? prev.filter(cId => cId !== id) : [...prev, id]);
+    const toggleClienteAnalisis = (id) => {
+        setClienteAnalisis(id);
+        setProyectoDetalleAbierto(null);
     };
 
     if (cargando) return <div className="p-10 text-center text-slate-500 animate-pulse font-bold tracking-widest uppercase">Cargando Analítica...</div>;
@@ -587,59 +605,95 @@ export default function ProyectosPage() {
                 </div>
             </div>
 
-            {/* SECCIÓN DE FILTROS FIJADOS EN LA PARTE SUPERIOR */}
+            {/* SECCIÓN DE ANÁLISIS: CLIENTE → PROYECTOS → SERVICIO → RENTABILIDAD */}
             <div className="sticky top-2 z-30 bg-white/90 backdrop-blur-md p-6 rounded-3xl shadow-md border border-slate-200 flex flex-col gap-4">
                 <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                     <div className="flex items-center gap-2">
                         <span className="text-lg">🎛️</span>
-                        <h2 className="font-black text-slate-800 text-sm tracking-tight">Filtros Dinámicos de Análisis (Fijados)</h2>
+                        <h2 className="font-black text-slate-800 text-sm tracking-tight">Análisis por Cliente y sus Proyectos</h2>
                     </div>
-                    <div className="text-[10px] text-slate-400 font-bold">Activo para desgloses y comparativas</div>
+                    <div className="text-[10px] text-slate-400 font-bold">Elige un cliente para ver sus proyectos, servicios y rentabilidad</div>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div className="flex flex-col gap-2">
-                        <div className="flex justify-between items-end mb-1">
-                            <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-1.5"><span>👥</span> Filtrar por Clientes</label>
-                            <div className="flex gap-1.5">
-                                <button onClick={() => setClientesSeleccionados(listasFiltros.clientes.map(c => c.id))} className="text-[9px] font-bold text-emerald-600 hover:text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-md transition-colors">Todos</button>
-                                <button onClick={() => setClientesSeleccionados([])} className="text-[9px] font-bold text-slate-500 hover:text-slate-700 bg-slate-100 px-2 py-0.5 rounded-md transition-colors">Ninguno</button>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
+                    <div className="flex flex-col gap-1.5">
+                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-1.5"><span>👥</span> Paso 1: Elegir Cliente</label>
+                        <select
+                            value={clienteAnalisis}
+                            onChange={e => toggleClienteAnalisis(e.target.value)}
+                            className="w-full appearance-none border-2 border-slate-200 hover:border-[#0055af]/50 focus:border-[#0055af] rounded-xl px-4 py-3 bg-slate-50 focus:bg-white font-black text-xs uppercase tracking-wider text-[#0055af] outline-none cursor-pointer transition-all shadow-sm"
+                        >
+                            <option value="Todos">🌐 Todos los clientes ({listasFiltros.clientes.length})</option>
+                            {listasFiltros.clientes.map(cliente => (
+                                <option key={cliente.id} value={cliente.id}>{cliente.nombre}</option>
+                            ))}
+                        </select>
+                    </div>
+
+                    {resumenClienteAnalisis ? (
+                        <div className={`p-3 rounded-xl border flex items-center gap-3 ${
+                            resumenClienteAnalisis.esUnico
+                                ? 'bg-blue-50 border-blue-100'
+                                : 'bg-purple-50 border-purple-100'
+                        }`}>
+                            <span className="text-2xl">{resumenClienteAnalisis.esUnico ? '🎯' : '🗂️'}</span>
+                            <div className="flex flex-col">
+                                <span className={`text-[10px] font-black uppercase tracking-widest ${resumenClienteAnalisis.esUnico ? 'text-blue-700' : 'text-purple-700'}`}>
+                                    {resumenClienteAnalisis.esUnico ? 'Proyecto Único' : `Múltiples Proyectos (${resumenClienteAnalisis.cantidad})`}
+                                </span>
+                                <span className="text-xs font-bold text-slate-600">{resumenClienteAnalisis.cliente}</span>
                             </div>
                         </div>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[120px] overflow-y-auto pr-1.5 custom-scrollbar">
-                            {listasFiltros.clientes.length === 0 ? (
-                                <p className="text-[10px] text-slate-400 italic p-2">No hay clientes con transacciones vinculadas.</p>
-                            ) : (
-                                listasFiltros.clientes.map(cliente => (
-                                    <label key={cliente.id} className="flex items-center gap-2 cursor-pointer group bg-slate-50 hover:bg-slate-100 p-1.5 rounded-lg transition-colors border border-slate-100">
-                                        <input type="checkbox" checked={clientesSeleccionados.includes(cliente.id)} onChange={() => toggleCliente(cliente.id)} className="w-3.5 h-3.5 rounded text-emerald-600 border-slate-300 cursor-pointer" />
-                                        <span className={`text-[11px] font-bold transition-colors truncate ${clientesSeleccionados.includes(cliente.id) ? 'text-slate-800' : 'text-slate-400'}`}>{cliente.nombre}</span>
-                                    </label>
-                                ))
-                            )}
-                        </div>
-                    </div>
-                    <div className="flex flex-col gap-2">
-                        <div className="flex justify-between items-end mb-1">
-                            <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-1.5"><span>🛠️</span> Filtrar por Servicios</label>
-                            <div className="flex gap-1.5">
-                                <button onClick={() => setServiciosSeleccionados(listasFiltros.servicios)} className="text-[9px] font-bold text-blue-600 hover:text-blue-800 bg-blue-50 px-2 py-0.5 rounded-md transition-colors">Todos</button>
-                                <button onClick={() => setServiciosSeleccionados([])} className="text-[9px] font-bold text-slate-500 hover:text-slate-700 bg-slate-100 px-2 py-0.5 rounded-md transition-colors">Ninguno</button>
+                    ) : (
+                        <div className="p-3 rounded-xl border bg-slate-50 border-slate-100 flex items-center gap-3">
+                            <span className="text-2xl">📊</span>
+                            <div className="flex flex-col">
+                                <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Vista General</span>
+                                <span className="text-xs font-bold text-slate-600">{datosFiltrados.length} proyecto(s) en el período</span>
                             </div>
                         </div>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[120px] overflow-y-auto pr-1.5 custom-scrollbar">
-                            {listasFiltros.servicios.length === 0 ? (
-                                <p className="text-[10px] text-slate-400 italic p-2">No hay servicios registrados en transacciones.</p>
-                            ) : (
-                                listasFiltros.servicios.map(servicio => (
-                                    <label key={servicio} className="flex items-center gap-2 cursor-pointer group bg-slate-50 hover:bg-slate-100 p-1.5 rounded-lg transition-colors border border-slate-100">
-                                        <input type="checkbox" checked={serviciosSeleccionados.includes(servicio)} onChange={() => toggleServicio(servicio)} className="w-3.5 h-3.5 rounded text-blue-600 border-slate-300 cursor-pointer" />
-                                        <span className={`text-[11px] font-bold transition-colors truncate ${serviciosSeleccionados.includes(servicio) ? 'text-slate-800' : 'text-slate-400'}`}>{servicio}</span>
-                                    </label>
-                                ))
-                            )}
-                        </div>
-                    </div>
+                    )}
                 </div>
+
+                {/* PASO 2 y 3: por cada proyecto del cliente elegido → tipo de servicio + rentabilidad */}
+                {resumenClienteAnalisis && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                        {datosFiltrados.length === 0 ? (
+                            <p className="col-span-full text-[11px] text-slate-400 italic p-2">Este cliente no tiene proyectos con movimientos en el período seleccionado.</p>
+                        ) : datosFiltrados.map(p => {
+                            const esGanancia = p.rentabilidad >= 0;
+                            return (
+                                <div key={p.key} className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow flex flex-col gap-2">
+                                    <div className="flex justify-between items-start gap-2">
+                                        <span className="text-xs font-black text-slate-800 leading-snug break-words">{p.proyecto_nombre || p.servicio}</span>
+                                        <span className={`shrink-0 px-2 py-0.5 rounded text-[9px] font-black uppercase ${esGanancia ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
+                                            {esGanancia ? 'Rentable' : 'Pérdida'}
+                                        </span>
+                                    </div>
+                                    <div className="text-[10px] font-black text-slate-400 uppercase tracking-wider">🛠️ Tipo de servicio: <span className="text-slate-600 normal-case">{p.servicio}</span></div>
+                                    <div className="grid grid-cols-4 text-center gap-1 pt-1.5 border-t border-slate-100">
+                                        <div>
+                                            <span className="text-[8px] text-slate-400 font-bold block uppercase">Ingr.</span>
+                                            <span className="text-[10px] font-black text-emerald-600">{Math.round(p.ingresos).toLocaleString('es-BO')}</span>
+                                        </div>
+                                        <div>
+                                            <span className="text-[8px] text-slate-400 font-bold block uppercase">Gastos</span>
+                                            <span className="text-[10px] font-black text-red-500">{Math.round(p.gastos).toLocaleString('es-BO')}</span>
+                                        </div>
+                                        <div>
+                                            <span className="text-[8px] text-slate-400 font-bold block uppercase">Neto</span>
+                                            <span className={`text-[10px] font-black ${esGanancia ? 'text-blue-600' : 'text-rose-600'}`}>{Math.round(p.rentabilidad).toLocaleString('es-BO')}</span>
+                                        </div>
+                                        <div>
+                                            <span className="text-[8px] text-slate-400 font-bold block uppercase">Margen</span>
+                                            <span className="text-[10px] font-black text-[#0055af]">{p.margen}%</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
             </div>
 
             {/* KPI Cards Globales */}
@@ -876,9 +930,9 @@ export default function ProyectosPage() {
                                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                                     <XAxis dataKey="nombre" axisLine={false} tickLine={false} interval={0} height={70}
                                         tick={({ x, y, payload }) => {
-                                            const partes = String(payload.value).split(' - ');
+                                            const partes = String(payload.value).split(' · ');
                                             const cliente = partes[0] || payload.value;
-                                            const servicio = partes.slice(1).join(' - ') || '';
+                                            const servicio = partes.slice(1).join(' · ') || '';
                                             return (
                                                 <g transform={`translate(${x},${y})`}>
                                                     <text x={0} y={0} dy={10} textAnchor="middle" fill="#475569" fontSize={9} fontWeight="bold">
@@ -931,15 +985,15 @@ export default function ProyectosPage() {
                                 <tr><td colSpan="5" className="p-6 text-center text-slate-400 italic">No hay proyectos seleccionados.</td></tr>
                             ) : (
                                 datosFiltrados.map((p) => {
-                                    const detalle = desglosePorProyecto[p.cliente_id];
-                                    const estaAbierto = proyectoDetalleAbierto === p.cliente_id;
+                                    const detalle = desglosePorProyecto[p.key];
+                                    const estaAbierto = proyectoDetalleAbierto === p.key;
                                     const esGanancia = p.rentabilidad >= 0;
                                     return (
-                                        <FragmentProyecto key={p.cliente_id}>
+                                        <FragmentProyecto key={p.key}>
                                             <tr className={`hover:bg-slate-50 transition-colors ${estaAbierto ? 'bg-blue-50/40' : ''}`}>
                                                 <td className="px-6 py-4">
-                                                    <div className="font-bold text-slate-800">{p.cliente}</div>
-                                                    {p.servicio && <div className="text-[9px] font-bold text-slate-400 mt-0.5">{p.servicio}</div>}
+                                                    <div className="font-bold text-slate-800">{p.proyecto_nombre || p.cliente}</div>
+                                                    {p.servicio && <div className="text-[9px] font-bold text-slate-400 mt-0.5">🛠️ {p.servicio}</div>}
                                                 </td>
                                                 <td className="px-6 py-4 text-center font-bold text-emerald-600">Bs. {Math.round(p.ingresos).toLocaleString('es-BO')}</td>
                                                 <td className="px-6 py-4 text-center font-bold text-red-500">Bs. {Math.round(p.gastos).toLocaleString('es-BO')}</td>
@@ -951,7 +1005,7 @@ export default function ProyectosPage() {
                                                 </td>
                                                 <td className="px-6 py-4 text-center">
                                                     <button
-                                                        onClick={() => toggleDetalleProyecto(p.cliente_id)}
+                                                        onClick={() => toggleDetalleProyecto(p.key)}
                                                         className={`px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider border transition-all shadow-sm ${estaAbierto
                                                             ? 'bg-[#0055af] text-white border-[#0055af]'
                                                             : 'bg-white text-[#0055af] border-[#0055af]/30 hover:bg-[#0055af] hover:text-white'

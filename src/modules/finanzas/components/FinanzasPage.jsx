@@ -44,17 +44,45 @@ export default function FinanzasPage() {
     const [filtroFechaDia, setFiltroFechaDia] = useState(obtenerFechaHoyISO());
     const [filtroFechaDiaHasta, setFiltroFechaDiaHasta] = useState(obtenerFechaHoyISO());
     const [importando, setImportando] = useState(false);
+    // Catálogo de apoyo para derivar Etiquetas del servicio del movimiento
+    const [catalogoServicioEtiqueta, setCatalogoServicioEtiqueta] = useState({});
 
     const fileInputRef = useRef(null);
 
     const fetchFinanzas = async () => {
         setCargando(true);
-        const { data } = await supabase
-            .from('finanzas')
-            .select('*, clientes(nombres, apellido_paterno, telefono, trabajo_realizado)')
-            .order('fecha_registro', { ascending: false });
+
+        // NOTA: los reportes NO usan los datos del registro inicial del cliente
+        // (trabajo_realizado / etiqueta). El estado y el servicio se toman de los
+        // movimientos de la hoja finanzas (f.servicio, finanza_servicios, proyecto_id).
+        const [resFinanzas, resCuentas, resProyectos, resServicios, resEtiquetas] = await Promise.all([
+            supabase.from('finanzas').select('*, clientes(nombres, apellido_paterno, telefono)').order('fecha_registro', { ascending: false }),
+            supabase.from('directorio_cuentas').select('id, alias, titular'),
+            supabase.from('proyectos').select('id, nombre').then(r => r).catch(() => ({ data: null })),
+            supabase.from('servicios').select('id, nombre, etiqueta_id'),
+            supabase.from('etiquetas').select('id, nombre')
+        ]);
+
+        const data = resFinanzas.data;
+
+        // Mapas de apoyo: personal, proyectos y catálogo servicio -> etiqueta
+        const etiquetasMap = {};
+        (resEtiquetas.data || []).forEach(e => { etiquetasMap[e.id] = e.nombre; });
+
+        const servicioEtiquetaMap = {}; // nombre de servicio -> nombre de etiqueta
+        (resServicios.data || []).forEach(s => {
+            if (s.etiqueta_id && etiquetasMap[s.etiqueta_id]) {
+                servicioEtiquetaMap[s.nombre] = etiquetasMap[s.etiqueta_id];
+            }
+        });
 
         if (data) {
+            const personalMap = {};
+            (resCuentas.data || []).forEach(p => { personalMap[p.id] = p; });
+
+            const proyectosMap = {};
+            (resProyectos.data || []).forEach(p => { proyectosMap[p.id] = p.nombre; });
+
             const finanzaIds = data.map(f => f.id);
             let serviciosMap = {};
 
@@ -71,7 +99,7 @@ export default function FinanzasPage() {
                             // Evitar duplicados: si el servicio ya está vinculado a esta finanza, no lo repetimos
                             const yaExiste = serviciosMap[fs.finanza_id].some(s => s.nombre === fs.servicios.nombre);
                             if (!yaExiste) {
-                                serviciosMap[fs.finanza_id].push(fs.servicios);
+                                serviciosMap[fs.finanza_id].push({ ...fs.servicios, etiqueta_nombre: etiquetasMap[fs.servicios.etiqueta_id] || '' });
                             }
                         }
                     });
@@ -80,11 +108,14 @@ export default function FinanzasPage() {
 
             const enriched = data.map(f => ({
                 ...f,
-                servicios_vinculados: serviciosMap[f.id] || []
+                servicios_vinculados: serviciosMap[f.id] || [],
+                personal_info: f.personal_id ? (personalMap[f.personal_id] || null) : null,
+                proyecto_nombre: f.proyecto_id ? (proyectosMap[f.proyecto_id] || '') : ''
             }));
 
             setFinanzas(enriched);
         }
+        setCatalogoServicioEtiqueta(servicioEtiquetaMap);
         setCargando(false);
     };
 
@@ -158,18 +189,53 @@ export default function FinanzasPage() {
         return f.servicios_vinculados.map(s => s.nombre || 'Servicio sin nombre');
     };
 
-    // Proyecto principal según la entrada predeterminada (servicios vinculados / trabajo realizado)
-    const obtenerProyectoPrincipal = (f) => {
-        const vinculados = obtenerServiciosVinculados(f);
-        if (vinculados.length > 0) {
-            return vinculados.join(', ');
-        }
-        if (f.clientes?.trabajo_realizado) {
-            return f.clientes.trabajo_realizado;
-        }
-        const { servicio } = parsearServicio(f.servicio);
-        return servicio && servicio !== '-' ? servicio : 'Sin proyecto';
+    // PERSONAL: dato independiente del cliente (columna propia en el reporte)
+    const esPagoPersonal = (f) => f.tipo === 'Gasto' && (
+        f.personal_id ||
+        f.categoria === 'Nómina y Salarios' ||
+        (f.servicio && f.servicio.toLowerCase().startsWith('sueldo:'))
+    );
+
+    const obtenerNombrePersonal = (f) => {
+        if (!esPagoPersonal(f)) return '-';
+        if (f.personal_info?.titular) return f.personal_info.titular;
+        if (f.titular) return f.titular;
+        return '-';
     };
+
+    // SERVICIO REALIZADO y su detalle: tomados SOLO del movimiento (finanzas),
+    // nunca del registro inicial del cliente.
+    const obtenerServicioRealizado = (f) => {
+        const { servicio } = parsearServicio(f.servicio);
+        if (!servicio || servicio === '-') {
+            const vinculados = obtenerServiciosVinculados(f);
+            if (vinculados.length === 1) return vinculados[0];
+            return '-';
+        }
+        return servicio;
+    };
+
+    const obtenerDetalleServicio = (f) => {
+        const { servicio, detalle } = parsearServicio(f.servicio);
+        if (servicio && servicio !== '-' && detalle && detalle !== '-') return detalle;
+        return '-';
+    };
+
+    // ETIQUETAS derivadas del servicio del movimiento (histórico vinculado o catálogo)
+    const obtenerEtiquetas = (f) => {
+        const nombres = new Set();
+        (f.servicios_vinculados || []).forEach(s => {
+            if (s.etiqueta_nombre) nombres.add(s.etiqueta_nombre);
+        });
+        if (nombres.size === 0) {
+            const { servicio } = parsearServicio(f.servicio);
+            if (servicio && catalogoServicioEtiqueta[servicio]) nombres.add(catalogoServicioEtiqueta[servicio]);
+        }
+        return nombres.size > 0 ? Array.from(nombres).join(', ') : '-';
+    };
+
+    // PROYECTO vinculado al movimiento
+    const obtenerProyecto = (f) => f.proyecto_nombre || '-';
 
     const obtenerSufijoPeriodo = () => {
         if (filtroTipoPeriodo === 'Día') {
@@ -193,16 +259,12 @@ export default function FinanzasPage() {
             return;
         }
 
-        // 1. Construir los datos completos usando el PROYECTO (entrada predeterminada)
-        //    en lugar de la descripción manual del servicio.
+        // 1. Construir los datos completos: UN DATO POR COLUMNA, tomado del
+        //    movimiento de finanzas (no del registro inicial del cliente).
+        //    Cliente y Personal son columnas independientes; Etiquetas,
+        //    Servicio Realizado y Proyecto van en columnas propias sin duplicar.
         const datosFormateados = finanzasFiltradas.map(f => {
-            const nombresClientes = obtenerNombresClientes(f).join(', ');
-            const proyecto = obtenerProyectoPrincipal(f);
-            const serviciosVinculados = obtenerServiciosVinculados(f).join(', ');
-            const esPagoPersonal = f.tipo === 'Gasto' && (
-                f.categoria === 'Nómina y Salarios' ||
-                (f.servicio && f.servicio.toLowerCase().startsWith('sueldo:'))
-            );
+            const esPersonal = esPagoPersonal(f);
 
             return {
                 'Fecha de Registro': formatearFecha(f.fecha_registro),
@@ -210,10 +272,13 @@ export default function FinanzasPage() {
                 'Categoría': f.categoria || '-',
                 'Detalle / Concepto': f.concepto || '-',
                 'Monto (Bs)': Number(f.monto),
-                'Proyecto (Entrada Predeterminada)': proyecto,
-                'Servicios Vinculados': serviciosVinculados || '-',
-                'Cliente / Personal': esPagoPersonal ? (f.titular || 'Personal') : nombresClientes,
-                'Celular Cliente': esPagoPersonal ? '-' : obtenerTelefonoCliente(f),
+                'Cliente': esPersonal ? '-' : obtenerNombresClientes(f).join(', '),
+                'Celular Cliente': esPersonal ? '-' : obtenerTelefonoCliente(f),
+                'Personal': obtenerNombrePersonal(f),
+                'Etiqueta(s)': obtenerEtiquetas(f),
+                'Servicio Realizado': obtenerServicioRealizado(f),
+                'Detalle Servicio': obtenerDetalleServicio(f),
+                'Proyecto': obtenerProyecto(f),
                 'Banco / Entidad': f.banco || 'Efectivo',
                 'Nro. Cuenta': f.numero_cuenta || '-',
                 'Titular Cuenta': f.titular || '-',
@@ -231,10 +296,13 @@ export default function FinanzasPage() {
             { wch: 24 }, // Categoría
             { wch: 34 }, // Detalle / Concepto
             { wch: 12 }, // Monto
-            { wch: 38 }, // Proyecto
-            { wch: 30 }, // Servicios
             { wch: 26 }, // Cliente
             { wch: 14 }, // Celular
+            { wch: 22 }, // Personal
+            { wch: 20 }, // Etiqueta(s)
+            { wch: 28 }, // Servicio Realizado
+            { wch: 22 }, // Detalle Servicio
+            { wch: 26 }, // Proyecto
             { wch: 16 }, // Banco
             { wch: 16 }, // Nro cuenta
             { wch: 24 }, // Titular
@@ -341,9 +409,14 @@ export default function FinanzasPage() {
                 return;
             }
 
-            const { data: listaClientes } = await supabase
-                .from('clientes')
-                .select('id, nombres, apellido_paterno, telefono');
+            const [resClientes, resCuentas, resProyectos] = await Promise.all([
+                supabase.from('clientes').select('id, nombres, apellido_paterno, telefono'),
+                supabase.from('directorio_cuentas').select('id, titular').eq('tipo', 'Personal'),
+                supabase.from('proyectos').select('id, nombre').then(r => r).catch(() => ({ data: null }))
+            ]);
+            const listaClientes = resClientes.data;
+            const listaPersonal = resCuentas.data || [];
+            const listaProyectos = resProyectos.data || [];
 
             const registrosAAgregar = [];
 
@@ -376,12 +449,14 @@ export default function FinanzasPage() {
                 const concepto = String(row['Detalle / Concepto'] || row['Concepto'] || row['Detalle'] || 'Movimiento importado');
                 const monto = parseFloat(row['Monto (Bs)'] || row['Monto'] || row['monto'] || 0);
 
+                // CLIENTE y PERSONAL son columnas independientes
                 const clienteTexto = String(
-                    row['Lead / Cliente Relacionado']
-                    || row['Cliente']
+                    row['Cliente']
+                    || row['Lead / Cliente Relacionado']
                     || row['Cliente / Personal']
                     || ''
                 ).trim().toLowerCase();
+                const personalTexto = String(row['Personal'] || '').trim().toLowerCase();
                 const celularCliente = String(
                     row['Celular Cliente']
                     || row['Celular']
@@ -389,6 +464,7 @@ export default function FinanzasPage() {
                     || row['Teléfono']
                     || ''
                 ).trim();
+
                 let cliente_id = null;
                 if (listaClientes && clienteTexto && !clienteTexto.includes('gasto general') && !clienteTexto.includes('sin cliente')) {
                     const clienteEncontrado = listaClientes.find(c => {
@@ -410,21 +486,32 @@ export default function FinanzasPage() {
                     }
                 }
 
-                // Proyecto / servicio: soporta el nuevo export (Proyecto predeterminado / Servicios vinculados)
-                // y las plantillas antiguas (Servicio + Detalle Servicio / Servicio Realizado)
-                const servicioCol = row['Proyecto (Entrada Predeterminada)']
-                    || row['Servicios Vinculados']
-                    || row['Servicio']
-                    || '';
+                // PERSONAL por titular
+                let personal_id = null;
+                if (personalTexto && personalTexto !== '-' && listaPersonal.length > 0) {
+                    const emp = listaPersonal.find(p => (p.titular || '').trim().toLowerCase() === personalTexto)
+                        || listaPersonal.find(p => (p.titular || '').toLowerCase().includes(personalTexto));
+                    if (emp) personal_id = emp.id;
+                }
+
+                // PROYECTO por nombre
+                const proyectoTexto = String(row['Proyecto'] || '').trim().toLowerCase();
+                let proyecto_id = null;
+                if (proyectoTexto && proyectoTexto !== '-' && listaProyectos.length > 0) {
+                    const proy = listaProyectos.find(p => p.nombre.trim().toLowerCase() === proyectoTexto);
+                    if (proy) proyecto_id = proy.id;
+                }
+
+                // Servicio Realizado: columna propia (+ detalle). Soporta plantillas antiguas.
+                const servicioCol = row['Servicio Realizado'] || row['Servicio'] || '';
                 const detalleCol = row['Detalle Servicio'] || '';
-                const servicioLegacy = row['Servicio Realizado'] || '';
                 let servicio = '';
-                if (servicioCol && detalleCol && detalleCol !== '-') {
-                    servicio = `${servicioCol} - ${detalleCol}`;
-                } else if (servicioCol && servicioCol !== 'Sin proyecto' && servicioCol !== '-') {
-                    servicio = servicioCol;
+                if (servicioCol && servicioCol !== '-') {
+                    servicio = (detalleCol && detalleCol !== '-') ? `${servicioCol} - ${detalleCol}` : servicioCol;
                 } else {
-                    servicio = servicioLegacy;
+                    // Plantillas muy antiguas usaban estas columnas
+                    const legacy = row['Proyecto (Entrada Predeterminada)'] || row['Servicios Vinculados'] || '';
+                    servicio = (legacy && legacy !== 'Sin proyecto' && legacy !== '-') ? legacy : '';
                 }
 
                 const banco = String(row['Banco / Entidad'] || row['Banco'] || 'Efectivo');
@@ -439,6 +526,8 @@ export default function FinanzasPage() {
                     concepto,
                     monto: isNaN(monto) ? 0 : monto,
                     cliente_id,
+                    personal_id,
+                    proyecto_id,
                     servicio,
                     banco,
                     numero_cuenta,
@@ -447,13 +536,30 @@ export default function FinanzasPage() {
                 });
             }
 
-            const { error } = await supabase.from('finanzas').insert(registrosAAgregar);
+            // Inserción con degradación: si la BD aún no tiene personal_id/proyecto_id
+            // (migración pendiente), reintenta sin esas columnas.
+            let error = null;
+            let degradado = false;
+            const resInsert = await supabase.from('finanzas').insert(registrosAAgregar);
+            error = resInsert.error;
+
+            if (error && (error.code === '42703' || /column/i.test(error.message || ''))) {
+                const sinNuevos = registrosAAgregar.map(r => {
+                    const copia = { ...r };
+                    delete copia.personal_id;
+                    delete copia.proyecto_id;
+                    return copia;
+                });
+                const reintento = await supabase.from('finanzas').insert(sinNuevos);
+                error = reintento.error;
+                degradado = !error;
+            }
 
             if (error) {
                 console.error("Error al importar datos:", error);
                 alert("Error al guardar los registros en la base de datos.");
             } else {
-                alert(`¡Éxito! Se importaron ${registrosAAgregar.length} registros correctamente.`);
+                alert(`¡Éxito! Se importaron ${registrosAAgregar.length} registros correctamente.${degradado ? '\n⚠️ Sin Personal/Proyecto: ejecuta la migración SQL 20260824000000 en Supabase.' : ''}`);
                 fetchFinanzas();
             }
         } catch (err) {
@@ -628,9 +734,19 @@ export default function FinanzasPage() {
                                                 <div className="flex flex-wrap gap-1 mt-1">
                                                     {obtenerNombresClientes(f).map((nom, idx) => (
                                                         <span key={idx} className="text-[9px] font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">
-                                                            {nom}
+                                                            👤 {nom}
                                                         </span>
                                                     ))}
+                                                    {esPagoPersonal(f) && obtenerNombrePersonal(f) !== '-' && (
+                                                        <span className="text-[9px] font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded">
+                                                            💼 {obtenerNombrePersonal(f)}
+                                                        </span>
+                                                    )}
+                                                    {f.proyecto_nombre && (
+                                                        <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">
+                                                            📁 {f.proyecto_nombre}
+                                                        </span>
+                                                    )}
                                                     {obtenerServiciosVinculados(f).map((serv, idx) => (
                                                         <span key={`serv-${idx}`} className="text-[9px] font-bold text-[#0055af] bg-[#0055af]/10 px-1.5 py-0.5 rounded">
                                                             🧹 {serv}

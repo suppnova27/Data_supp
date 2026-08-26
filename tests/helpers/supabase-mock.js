@@ -14,9 +14,9 @@ export const MOCK_DATA = {
     { id: 'test-user-001', email: 'novasolum.info@gmail.com', rol: 'SA', nombre_completo: 'Test User' }
   ],
   clientes: [
-    { id: 'cli-001', nombres: 'Maria Garcia', telefono: '79123456', email: 'maria@test.com' },
-    { id: 'cli-002', nombres: 'Carlos Lopez', telefono: '79654321', email: 'carlos@test.com' },
-    { id: 'cli-003', nombres: 'Ana Martinez', telefono: '79111222', email: 'ana@test.com' },
+    { id: 'cli-001', nombres: 'Maria Garcia', telefono: '79123456', email: 'maria@test.com', origen: 'Facebook', tipo_registro: 'Lead' },
+    { id: 'cli-002', nombres: 'Carlos Lopez', telefono: '79654321', email: 'carlos@test.com', origen: '', tipo_registro: 'Cliente' },
+    { id: 'cli-003', nombres: 'Ana Martinez', telefono: '79111222', email: 'ana@test.com', origen: 'TikTok', tipo_registro: 'Lead' },
   ],
   servicios: [
     { id: 'srv-001', nombre: 'Limpieza de Oficina', etiqueta_id: 'etq-001', activa: true },
@@ -29,8 +29,8 @@ export const MOCK_DATA = {
     { id: 'etq-002', nombre: 'Mantenimiento', color: '#10b981', activa: true },
   ],
   finanzas: [
-    { id: 'fin-001', fecha_registro: '2026-07-20', tipo: 'Ingreso', categoria: 'Servicios', concepto: 'Pago cliente Maria', monto: 1500, cliente_id: 'cli-001', servicio: 'Limpieza de Oficina', banco: 'Efectivo', numero_cuenta: '', titular: '', id_operacion: '', cuenta_id: '' },
-    { id: 'fin-002', fecha_registro: '2026-07-22', tipo: 'Gasto', categoria: 'Insumos', concepto: 'Compra de productos de limpieza', monto: 350, cliente_id: null, servicio: '', banco: 'BCA', numero_cuenta: '1234567', titular: 'ORE', id_operacion: 'TX-001', cuenta_id: 'cta-001' },
+    { id: 'fin-001', fecha_registro: '2026-07-20', tipo: 'Ingreso', categoria: 'Servicios', concepto: 'Pago cliente Maria', monto: 1500, cliente_id: 'cli-001', servicio: 'Limpieza de Oficina', banco: 'Efectivo', numero_cuenta: '', titular: '', id_operacion: '', cuenta_id: '', personal_id: null, proyecto_id: 'pro-001' },
+    { id: 'fin-002', fecha_registro: '2026-07-22', tipo: 'Gasto', categoria: 'Insumos', concepto: 'Compra de productos de limpieza', monto: 350, cliente_id: null, servicio: '', banco: 'BCA', numero_cuenta: '1234567', titular: 'ORE', id_operacion: 'TX-001', cuenta_id: 'cta-001', personal_id: null, proyecto_id: null },
   ],
   finanza_servicios: [],
   directorio_cuentas: [
@@ -42,7 +42,8 @@ export const MOCK_DATA = {
     { id: 'inv-002', nombre: 'Cloro', cantidad: 30, unidad_medida: 'litros' },
   ],
   proyectos: [
-    { id: 'pro-001', nombre: 'Oficina Maria Garcia', cliente_id: 'cli-001', estado: 'Activo' },
+    { id: 'pro-001', nombre: 'Oficina Maria Garcia', cliente_id: 'cli-001', descripcion: '', activa: true },
+    { id: 'pro-002', nombre: 'Limpieza Anual Carlos', cliente_id: 'cli-002', descripcion: '', activa: true },
   ],
   calendario: [
     { id: 'cal-001', fecha: fechaISO(hoy), hora: '09:00:00', tipo: 'Visita', titulo: 'Visita cotización Maria', cliente_id: 'cli-001', servicio_id: 'srv-001', etiqueta_id: 'etq-001', estado: 'Pendiente', notas: 'Confirmar medidas del local', usuario_id: 'test-user-001' },
@@ -319,8 +320,8 @@ export async function injectSessionIntoStorage(page, session) {
 // Helper to reset all mock data to defaults
 export function resetMockData() {
   MOCK_DATA.finanzas = [
-    { id: 'fin-001', fecha_registro: '2026-07-20', tipo: 'Ingreso', categoria: 'Servicios', concepto: 'Pago cliente Maria', monto: 1500, cliente_id: 'cli-001', servicio: 'Limpieza de Oficina', banco: 'Efectivo', numero_cuenta: '', titular: '', id_operacion: '', cuenta_id: '' },
-    { id: 'fin-002', fecha_registro: '2026-07-22', tipo: 'Gasto', categoria: 'Insumos', concepto: 'Compra de productos de limpieza', monto: 350, cliente_id: null, servicio: '', banco: 'BCA', numero_cuenta: '1234567', titular: 'ORE', id_operacion: 'TX-001', cuenta_id: 'cta-001' },
+    { id: 'fin-001', fecha_registro: '2026-07-20', tipo: 'Ingreso', categoria: 'Servicios', concepto: 'Pago cliente Maria', monto: 1500, cliente_id: 'cli-001', servicio: 'Limpieza de Oficina', banco: 'Efectivo', numero_cuenta: '', titular: '', id_operacion: '', cuenta_id: '', personal_id: null, proyecto_id: 'pro-001' },
+    { id: 'fin-002', fecha_registro: '2026-07-22', tipo: 'Gasto', categoria: 'Insumos', concepto: 'Compra de productos de limpieza', monto: 350, cliente_id: null, servicio: '', banco: 'BCA', numero_cuenta: '1234567', titular: 'ORE', id_operacion: 'TX-001', cuenta_id: 'cta-001', personal_id: null, proyecto_id: null },
   ];
   MOCK_DATA.finanza_servicios = [];
   MOCK_DATA.calendario = [

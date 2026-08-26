@@ -3,6 +3,18 @@ import { supabase } from '../../../lib/supabase';
 
 const COLUMNAS_KANBAN = ['Nuevo Lead', 'En negociación', 'Cotización enviada', 'No responde'];
 
+// Orígenes disponibles para un LEAD
+const ORIGENES_LEAD = [
+    'Facebook',
+    'Instagram',
+    'TikTok',
+    'WhatsApp',
+    'Página Web',
+    'Llamada entrante',
+    'Recomendación',
+    'Otro'
+];
+
 async function cargarServiciosBD() {
     try {
         const { data, error } = await supabase
@@ -53,9 +65,14 @@ export default function ClientesPage() {
     const [serviciosDisponibles, setServiciosDisponibles] = useState([]);
     const [etiquetasDisponibles, setEtiquetasDisponibles] = useState([]);
     const [formData, setFormData] = useState({
-        nombres: '', apellido_paterno: '', telefono: '', trabajo_realizado: '', etiqueta: '', estado: 'Nuevo Lead'
+        nombres: '', apellido_paterno: '', telefono: '', trabajo_realizado: '', etiqueta: '', estado: 'Nuevo Lead',
+        origen: '', tipo_registro: 'Lead'
     });
     const [editandoId, setEditandoId] = useState(null);
+
+    // Conteo de movimientos por cliente: el estado REAL Lead/Cliente se deriva
+    // de la hoja finanzas (no del registro inicial).
+    const [movimientosPorCliente, setMovimientosPorCliente] = useState({});
 
     const [cerrandoId, setCerrandoId] = useState(null);
     const [motivoCierre, setMotivoCierre] = useState('Venta concretada');
@@ -64,6 +81,16 @@ export default function ClientesPage() {
         setCargando(true);
         const { data } = await supabase.from('clientes').select('*').order('fecha_creacion', { ascending: false });
         if (data) setClientes(data);
+
+        // Movimientos por cliente (fuente de verdad para el estado Lead/Cliente)
+        const { data: movs } = await supabase.from('finanzas').select('cliente_id');
+        if (movs) {
+            const conteo = {};
+            movs.forEach(m => {
+                if (m.cliente_id) conteo[m.cliente_id] = (conteo[m.cliente_id] || 0) + 1;
+            });
+            setMovimientosPorCliente(conteo);
+        }
         setCargando(false);
     };
 
@@ -76,7 +103,16 @@ export default function ClientesPage() {
 
     const abrirModal = (cliente = null) => {
         if (cliente) {
-            setFormData({ ...cliente });
+            setFormData({
+                nombres: cliente.nombres || '',
+                apellido_paterno: cliente.apellido_paterno || '',
+                telefono: cliente.telefono || '',
+                trabajo_realizado: cliente.trabajo_realizado || '',
+                etiqueta: cliente.etiqueta || '',
+                estado: cliente.estado || 'Nuevo Lead',
+                origen: cliente.origen || '',
+                tipo_registro: cliente.tipo_registro || 'Lead'
+            });
             setEditandoId(cliente.id);
         } else {
             setFormData({ 
@@ -85,23 +121,43 @@ export default function ClientesPage() {
                 telefono: '', 
                 trabajo_realizado: serviciosDisponibles[0] || '', 
                 etiqueta: etiquetasDisponibles[0] || '', 
-                estado: 'Nuevo Lead' 
+                estado: 'Nuevo Lead',
+                origen: '',
+                tipo_registro: 'Lead'
             });
             setEditandoId(null);
         }
         setModalAbierto(true);
     };
 
+    // El tipo (Lead/Cliente) se elige al inicio del modal:
+    //  - LEAD:    Nombre, Apellido, Celular, Origen y Servicio de interés
+    //  - CLIENTE: solo Nombre, Apellido y Celular
     const handleSubmit = async (e) => {
         e.preventDefault();
         setGuardando(true);
+
+        const esClienteDirecto = formData.tipo_registro === 'Cliente';
+
+        const payload = {
+            nombres: formData.nombres,
+            apellido_paterno: formData.apellido_paterno,
+            telefono: formData.telefono,
+            trabajo_realizado: esClienteDirecto ? '' : (formData.trabajo_realizado || ''),
+            etiqueta: esClienteDirecto ? '' : (formData.etiqueta || ''),
+            origen: esClienteDirecto ? '' : (formData.origen || ''),
+            tipo_registro: formData.tipo_registro,
+            estado: esClienteDirecto ? 'Cliente' : (formData.estado && COLUMNAS_KANBAN.includes(formData.estado) ? formData.estado : 'Nuevo Lead')
+        };
+
         const accion = editandoId
-            ? supabase.from('clientes').update(formData).eq('id', editandoId)
-            : supabase.from('clientes').insert([formData]);
+            ? supabase.from('clientes').update(payload).eq('id', editandoId)
+            : supabase.from('clientes').insert([payload]);
 
         const { error } = await accion;
         setGuardando(false);
         if (!error) { setModalAbierto(false); fetchClientes(); }
+        else alert('Error al guardar: ' + error.message);
     };
 
     const cambiarEstadoKanban = async (id, nuevoEstado) => {
@@ -166,7 +222,7 @@ export default function ClientesPage() {
                     </select>
 
                     <button onClick={() => abrirModal()} className="px-6 py-2.5 bg-[#0055af] text-white font-black rounded-full text-xs uppercase tracking-widest hover:bg-[#0055af] hover:-translate-y-1 shadow-lg shadow-[#0055af]/20 border-2 border-[#0055af] hover:border-[#ffdd1c] transition-all duration-300">
-                        + Nuevo Lead
+                        + Nuevo Caso
                     </button>
                 </div>
             </div>
@@ -236,6 +292,11 @@ export default function ClientesPage() {
                                                         <span className="text-[10px] font-black bg-blue-50 text-[#0055af] px-2 py-0.5 rounded-lg border border-blue-200/60 shrink-0 whitespace-nowrap shadow-sm">
                                                             {c.etiqueta || '✨ Residencial'}
                                                         </span>
+                                                        {c.origen && (
+                                                            <span className="text-[10px] font-black bg-purple-50 text-purple-700 px-2 py-0.5 rounded-lg border border-purple-200/60 shrink-0 whitespace-nowrap shadow-sm">
+                                                                📍 {c.origen}
+                                                            </span>
+                                                        )}
                                                     </div>
                                                     <a href={`tel:${c.telefono}`} className="text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 px-3 py-1 rounded-xl w-fit flex items-center gap-1.5 border border-slate-200/60 transition-colors">
                                                         <span>📱</span> {c.telefono || 'Sin teléfono'}
@@ -319,7 +380,8 @@ export default function ClientesPage() {
                             <thead className="bg-slate-50 border-b border-slate-200 uppercase text-[10px] font-black text-slate-400">
                                 <tr>
                                     <th className="px-6 py-4">Cliente / Lead</th>
-                                    <th className="px-6 py-4">Estado</th>
+                                    <th className="px-6 py-4">Estado Real</th>
+                                    <th className="px-6 py-4">Origen</th>
                                     <th className="px-6 py-4">Servicio de Interés</th>
                                     <th className="px-6 py-4">Etiqueta</th>
                                     <th className="px-6 py-4 text-right">Acciones</th>
@@ -327,9 +389,11 @@ export default function ClientesPage() {
                             </thead>
                             <tbody className="divide-y divide-slate-100">
                                 {clientesFiltrados.length === 0 ? (
-                                    <tr><td colSpan="5" className="p-12 text-center text-slate-400 italic">No hay registros que coincidan con la búsqueda.</td></tr>
+                                    <tr><td colSpan="6" className="p-12 text-center text-slate-400 italic">No hay registros que coincidan con la búsqueda.</td></tr>
                                 ) : (
-                                    clientesFiltrados.map(c => (
+                                    clientesFiltrados.map(c => {
+                                        const movimientosCliente = movimientosPorCliente[c.id] || 0;
+                                        return (
                                         <tr key={c.id} className="hover:bg-slate-50 transition-colors">
                                             <td className="px-6 py-4">
                                                 <div className="font-bold text-slate-800 text-base">{c.nombres} {c.apellido_paterno || ''}</div>
@@ -344,12 +408,18 @@ export default function ClientesPage() {
                                                     <span className="px-3 py-1.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-rose-100 text-rose-700 flex items-center gap-1 w-max">
                                                         📦 Archivado: {c.motivo_cierre || 'Cerrado'}
                                                     </span>
+                                                ) : movimientosCliente > 0 ? (
+                                                    // El estado REAL se define por los movimientos en Finanzas
+                                                    <span className="px-3 py-1.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-emerald-100 text-emerald-700 flex items-center gap-1 w-max" title={`${movimientosCliente} movimiento(s) en Finanzas`}>
+                                                        ✅ Cliente · {movimientosCliente} mov.
+                                                    </span>
                                                 ) : (
-                                                    <span className="px-3 py-1.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-emerald-100 text-emerald-700 flex items-center gap-1 w-max">
-                                                        ⚡ Activo: {c.estado}
+                                                    <span className="px-3 py-1.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-amber-100 text-amber-700 flex items-center gap-1 w-max">
+                                                        ⚡ Lead · sin movimientos
                                                     </span>
                                                 )}
                                             </td>
+                                            <td className="px-6 py-4 text-xs font-bold text-slate-500">{c.origen || '-'}</td>
                                             <td className="px-6 py-4 text-xs font-semibold">{c.trabajo_realizado || <span className="italic text-slate-400">Por definir</span>}</td>
                                             <td className="px-6 py-4 text-xs font-bold text-slate-500">{c.etiqueta || '-'}</td>
                                             <td className="px-6 py-4 text-right">
@@ -388,7 +458,8 @@ export default function ClientesPage() {
                                                 </div>
                                             </td>
                                         </tr>
-                                    )))
+                                        );
+                                    }))
                                 }
                             </tbody>
                         </table>
@@ -397,36 +468,112 @@ export default function ClientesPage() {
             )}
 
             {modalAbierto && (
-                <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[110] p-4">
-                    <form onSubmit={handleSubmit} className="bg-white rounded-3xl w-full max-w-md p-8 flex flex-col gap-4 shadow-2xl border-t-4 border-t-[#ffdd1c] animate-in zoom-in-95 duration-200">
-                        <div className="flex justify-between items-center border-b pb-3 mb-1">
-                            <h2 className="text-xl font-black text-[#0055af]">{editandoId ? 'Ficha de Lead' : 'Nuevo Lead Manual'}</h2>
-                            <button type="button" onClick={() => setModalAbierto(false)} className="w-8 h-8 rounded-full bg-slate-100 text-slate-500 hover:bg-rose-100 hover:text-rose-600 flex items-center justify-center font-bold transition-colors">&times;</button>
+                <div
+                    className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[110] p-4"
+                    onClick={(e) => { if (e.target === e.currentTarget) setModalAbierto(false); }}
+                >
+                    <form onSubmit={handleSubmit} className="bg-white rounded-3xl w-full max-w-md p-8 flex flex-col gap-4 shadow-2xl border-t-4 border-t-[#ffdd1c] animate-in zoom-in-95 duration-200 max-h-[92vh] overflow-y-auto custom-scrollbar">
+                        <div className="sticky -top-8 bg-white z-10 flex justify-between items-center border-b pb-3 pt-3 mb-1">
+                            <h2 className="text-xl font-black text-[#0055af]">{editandoId ? 'Editar Registro' : 'Nuevo Caso'}</h2>
+                            <button type="button" onClick={() => setModalAbierto(false)} title="Cerrar" aria-label="Cerrar" className="w-9 h-9 shrink-0 rounded-full bg-slate-100 text-slate-500 hover:bg-rose-100 hover:text-rose-600 flex items-center justify-center font-bold text-lg leading-none transition-colors">&times;</button>
                         </div>
+
+                        {/* PASO 1: ¿Es LEAD o CLIENTE? */}
+                        {!editandoId && (
+                            <div className="grid grid-cols-2 gap-2 bg-slate-50 p-1.5 rounded-2xl border border-slate-100">
+                                <button
+                                    type="button"
+                                    onClick={() => setFormData({ ...formData, tipo_registro: 'Lead' })}
+                                    className={`py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${formData.tipo_registro === 'Lead' ? 'bg-[#ffdd1c] text-[#0055af] shadow' : 'text-slate-400 hover:text-slate-600'}`}
+                                >
+                                    🎯 Es un Lead
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setFormData({ ...formData, tipo_registro: 'Cliente' })}
+                                    className={`py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${formData.tipo_registro === 'Cliente' ? 'bg-emerald-500 text-white shadow' : 'text-slate-400 hover:text-slate-600'}`}
+                                >
+                                    ✅ Es un Cliente
+                                </button>
+                            </div>
+                        )}
+
+                        {editandoId && (
+                            <div className="grid grid-cols-2 gap-2 bg-slate-50 p-1.5 rounded-2xl border border-slate-100">
+                                <button
+                                    type="button"
+                                    onClick={() => setFormData({ ...formData, tipo_registro: 'Lead', estado: COLUMNAS_KANBAN.includes(formData.estado) ? formData.estado : 'Nuevo Lead' })}
+                                    className={`py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${formData.tipo_registro === 'Lead' ? 'bg-[#ffdd1c] text-[#0055af] shadow' : 'text-slate-400 hover:text-slate-600'}`}
+                                >
+                                    🎯 Lead
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setFormData({ ...formData, tipo_registro: 'Cliente', estado: 'Cliente' })}
+                                    className={`py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${formData.tipo_registro === 'Cliente' ? 'bg-emerald-500 text-white shadow' : 'text-slate-400 hover:text-slate-600'}`}
+                                >
+                                    ✅ Cliente
+                                </button>
+                            </div>
+                        )}
+
+                        {/* DATOS BASE (comunes a Lead y Cliente) */}
                         <input type="text" required placeholder="Nombre(s)" className="border-2 border-slate-100 rounded-xl px-4 py-3 text-sm font-bold bg-slate-50 focus:bg-white focus:border-[#0055af] outline-none transition-all" value={formData.nombres} onChange={e => setFormData({ ...formData, nombres: e.target.value })} />
                         <input type="text" placeholder="Apellido (Opcional)" className="border-2 border-slate-100 rounded-xl px-4 py-3 text-sm font-bold bg-slate-50 focus:bg-white focus:border-[#0055af] outline-none transition-all" value={formData.apellido_paterno} onChange={e => setFormData({ ...formData, apellido_paterno: e.target.value })} />
-                        <input type="text" required placeholder="Teléfono / Celular" className="border-2 border-slate-100 rounded-xl px-4 py-3 text-sm font-bold bg-slate-50 focus:bg-white focus:border-[#0055af] outline-none transition-all" value={formData.telefono} onChange={e => setFormData({ ...formData, telefono: e.target.value })} />
+                        <input type="text" required placeholder="Celular" className="border-2 border-slate-100 rounded-xl px-4 py-3 text-sm font-bold bg-slate-50 focus:bg-white focus:border-[#0055af] outline-none transition-all" value={formData.telefono} onChange={e => setFormData({ ...formData, telefono: e.target.value })} />
 
-                        <div className="flex flex-col gap-3 mt-1">
-                            <div className="flex flex-col gap-1.5">
-                                <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider pl-1">Servicio de Interés</label>
-                                <div className="relative">
-                                    <select className="w-full appearance-none border-2 border-slate-100 rounded-xl px-4 py-3 bg-slate-50 focus:bg-white font-bold text-xs text-slate-700 outline-none focus:border-[#0055af] focus:ring-4 focus:ring-[#0055af]/10 transition-all cursor-pointer" value={formData.trabajo_realizado} onChange={e => setFormData({ ...formData, trabajo_realizado: e.target.value })}>
-                                        {serviciosDisponibles.map(s => <option key={s} value={s}>{s}</option>)}
-                                    </select>
-                                    <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400 text-xs">▼</div>
+                        {/* CAMPOS EXCLUSIVOS DE LEAD */}
+                        {formData.tipo_registro === 'Lead' && (
+                            <div className="flex flex-col gap-3 mt-1">
+                                <p className="text-[9px] font-black text-[#ffdd1c] bg-[#0055af] uppercase tracking-widest pl-1 py-1.5 px-3 rounded-lg w-max">🎯 Datos del Lead</p>
+
+                                <div className="flex flex-col gap-1.5">
+                                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider pl-1">Origen (¿De dónde vino?)</label>
+                                    <div className="relative">
+                                        <select required={!editandoId} className="w-full appearance-none border-2 border-slate-100 rounded-xl px-4 py-3 bg-slate-50 focus:bg-white font-bold text-xs text-slate-700 outline-none focus:border-[#0055af] focus:ring-4 focus:ring-[#0055af]/10 transition-all cursor-pointer" value={formData.origen || ''} onChange={e => setFormData({ ...formData, origen: e.target.value })}>
+                                            <option value="">-- Seleccionar origen --</option>
+                                            {ORIGENES_LEAD.map(o => <option key={o} value={o}>{o}</option>)}
+                                            {formData.origen && !ORIGENES_LEAD.includes(formData.origen) && (
+                                                <option value={formData.origen}>{formData.origen}</option>
+                                            )}
+                                        </select>
+                                        <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400 text-xs">▼</div>
+                                    </div>
                                 </div>
-                            </div>
-                            <div className="flex flex-col gap-1.5">
-                                <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider pl-1">Etiqueta de Rubro</label>
-                                <div className="relative">
-                                    <select className="w-full appearance-none border-2 border-slate-100 rounded-xl px-4 py-3 bg-slate-50 focus:bg-white font-bold text-xs text-slate-700 outline-none focus:border-[#0055af] focus:ring-4 focus:ring-[#0055af]/10 transition-all cursor-pointer" value={formData.etiqueta} onChange={e => setFormData({ ...formData, etiqueta: e.target.value })}>
-                                        {etiquetasDisponibles.map(e => <option key={e} value={e}>{e}</option>)}
-                                    </select>
-                                    <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400 text-xs">▼</div>
+
+                                <div className="flex flex-col gap-1.5">
+                                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider pl-1">Servicio de Interés</label>
+                                    <div className="relative">
+                                        <select className="w-full appearance-none border-2 border-slate-100 rounded-xl px-4 py-3 bg-slate-50 focus:bg-white font-bold text-xs text-slate-700 outline-none focus:border-[#0055af] focus:ring-4 focus:ring-[#0055af]/10 transition-all cursor-pointer" value={formData.trabajo_realizado || ''} onChange={e => setFormData({ ...formData, trabajo_realizado: e.target.value })}>
+                                            <option value="">-- Sin definir --</option>
+                                            {serviciosDisponibles.map(s => <option key={s} value={s}>{s}</option>)}
+                                        </select>
+                                        <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400 text-xs">▼</div>
+                                    </div>
                                 </div>
+
+                                <div className="flex flex-col gap-1.5">
+                                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider pl-1">Etiqueta de Rubro (Opcional)</label>
+                                    <div className="relative">
+                                        <select className="w-full appearance-none border-2 border-slate-100 rounded-xl px-4 py-3 bg-slate-50 focus:bg-white font-bold text-xs text-slate-700 outline-none focus:border-[#0055af] focus:ring-4 focus:ring-[#0055af]/10 transition-all cursor-pointer" value={formData.etiqueta || ''} onChange={e => setFormData({ ...formData, etiqueta: e.target.value })}>
+                                            <option value="">-- Sin etiqueta --</option>
+                                            {etiquetasDisponibles.map(e => <option key={e} value={e}>{e}</option>)}
+                                        </select>
+                                        <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400 text-xs">▼</div>
+                                    </div>
+                                </div>
+
+                                <p className="text-[9px] text-slate-400 font-bold leading-snug bg-blue-50 border border-blue-100 rounded-lg p-2">
+                                    ℹ️ Este registro es solo informativo. El estado real (Lead o Cliente) se define cuando registras movimientos del mismo en Finanzas.
+                                </p>
                             </div>
-                        </div>
+                        )}
+
+                        {formData.tipo_registro === 'Cliente' && (
+                            <p className="text-[9px] text-slate-400 font-bold leading-snug bg-emerald-50 border border-emerald-100 rounded-lg p-2">
+                                ℹ️ Cliente registrado con datos mínimos. Sus servicios y proyectos se detallan en los movimientos de Finanzas.
+                            </p>
+                        )}
 
                         <div className="flex justify-end gap-3 mt-5 border-t pt-4">
                             <button type="button" onClick={() => setModalAbierto(false)} className="px-5 py-2.5 text-slate-500 font-bold text-xs uppercase tracking-widest rounded-full hover:bg-slate-100 transition-colors">Cancelar</button>
@@ -437,7 +584,7 @@ export default function ClientesPage() {
             )}
 
             {cerrandoId && (
-                <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[120] p-4">
+                <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[120] p-4" onClick={(e) => { if (e.target === e.currentTarget) setCerrandoId(null); }}>
                     <div className="bg-white rounded-3xl w-full max-w-sm p-6 shadow-2xl flex flex-col gap-4 border-t-4 border-t-[#ffdd1c] animate-in zoom-in-95 duration-150">
                         <div className="flex justify-between items-center">
                             <h2 className="text-xl font-black text-[#0055af] flex items-center gap-2">📦 Archivar Lead</h2>

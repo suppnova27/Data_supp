@@ -28,28 +28,6 @@ async function cargarEtiquetasBD() {
     }
 }
 
-async function cargarServiciosConEtiqueta() {
-    try {
-        const [serviciosRes, etiquetasRes] = await Promise.all([
-            supabase.from('servicios').select('id, nombre, etiqueta_id, activa'),
-            supabase.from('etiquetas').select('id, nombre')
-        ]);
-
-        const servicios = (serviciosRes.data || []).filter(s => s.activa !== false);
-        const etiquetasMap = {};
-        (etiquetasRes.data || []).forEach(e => { etiquetasMap[e.id] = e.nombre; });
-
-        return servicios.map(s => ({
-            id: s.id,
-            nombre: s.nombre,
-            etiqueta_nombre: s.etiqueta_id ? etiquetasMap[s.etiqueta_id] || '' : ''
-        }));
-    } catch (e) {
-        console.error('Excepción cargando servicios con etiqueta:', e);
-        return [];
-    }
-}
-
 async function cargarServiciosBD(etiquetaId = null) {
     try {
         let query = supabase
@@ -80,6 +58,26 @@ async function cargarServiciosBD(etiquetaId = null) {
     }
 }
 
+async function cargarProyectosBD() {
+    try {
+        const { data, error } = await supabase
+            .from('proyectos')
+            .select('id, nombre, cliente_id')
+            .eq('activa', true)
+            .order('nombre', { ascending: true });
+
+        if (error) {
+            // Si la tabla aún no existe (migración pendiente), devolvemos lista vacía
+            console.warn('Aviso cargando proyectos:', error.message);
+            return [];
+        }
+        return data || [];
+    } catch (e) {
+        console.error('Excepción cargando proyectos:', e);
+        return [];
+    }
+}
+
 const obtenerFechaHoy = () => {
     const d = new Date();
     const year = d.getFullYear();
@@ -98,19 +96,44 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
     const [etiquetas, setEtiquetas] = useState([]);
     const [etiquetaSeleccionada, setEtiquetaSeleccionada] = useState('');
     const [catalogoServicios, setCatalogoServicios] = useState([]);
-    const [serviciosConEtiqueta, setServiciosConEtiqueta] = useState([]);
-    const [proyectoRelacionadoId, setProyectoRelacionadoId] = useState('');
-    const [serviciosSeleccionados, setServiciosSeleccionados] = useState([]);
+    const [proyectos, setProyectos] = useState([]);
 
     const [formData, setFormData] = useState({
         fecha_registro: obtenerFechaHoy(),
-        tipo: 'Gasto', categoria: '', concepto: '', monto: '', cliente_id: '',
+        tipo: 'Gasto', categoria: '', concepto: '', monto: '',
+        cliente_id: '', personal_id: '', proyecto_id: '',
         servicio: '', sub_servicio: SUB_SERVICIOS_RUTINARIA[0],
         servicio_manual: '', sub_servicio_manual: '',
         banco: 'Efectivo', numero_cuenta: '', titular: '', id_operacion: '', cuenta_id: ''
     });
 
     const [consumo, setConsumo] = useState({ inventario_id: '', cantidad: 0 });
+
+    async function cargarDatosBasicos() {
+        const { data: dataClientes } = await supabase.from('clientes').select('id, nombres').order('nombres', { ascending: true });
+        if (dataClientes) setClientes(dataClientes);
+        const { data: dataPersonal } = await supabase.from('directorio_cuentas').select('*').eq('tipo', 'Personal');
+        if (dataPersonal) setPersonal(dataPersonal);
+        const { data: dataCuentas } = await supabase.from('directorio_cuentas').select('id, alias, banco, numero_cuenta, titular').eq('tipo', 'Propia');
+        if (dataCuentas) setCuentas(dataCuentas);
+        const { data: dataInv } = await supabase.from('inventario').select('id, nombre, cantidad, unidad_medida');
+        if (dataInv) setProductos(dataInv);
+
+        // Compatibilidad: en registros legacy de pagos al personal, el nombre del
+        // empleado quedaba guardado en `titular` (sin personal_id). Lo deducimos.
+        if (finanzaEditando && !finanzaEditando.personal_id && dataPersonal) {
+            const esLegacy = finanzaEditando.tipo === 'Gasto' && (
+                finanzaEditando.categoria === 'Nómina y Salarios' ||
+                (finanzaEditando.servicio && finanzaEditando.servicio.toLowerCase().startsWith('sueldo:'))
+            );
+            if (esLegacy && finanzaEditando.titular) {
+                const emp = dataPersonal.find(p => p.titular === finanzaEditando.titular);
+                if (emp) {
+                    setFormData(prev => ({ ...prev, personal_id: emp.id }));
+                }
+            }
+        }
+    }
 
     useEffect(() => {
         if (isOpen) {
@@ -121,6 +144,7 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
     useEffect(() => {
         if (isOpen) {
             cargarDatosBasicos();
+            cargarProyectosBD().then(data => setProyectos(data));
             cargarEtiquetasBD().then(data => setEtiquetas(data));
             cargarServiciosBD().then(servicios => {
                 setCatalogoServicios(servicios);
@@ -128,7 +152,6 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
                     setFormData(prev => ({ ...prev, servicio: servicios[0] }));
                 }
             });
-            cargarServiciosConEtiqueta().then(servicios => setServiciosConEtiqueta(servicios));
 
             if (finanzaEditando) {
                 let servicioBase = finanzaEditando.servicio || '';
@@ -147,21 +170,20 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
                         subServ = 'Otro (Especificar)';
                         subManual = subExtraido;
                     }
-                } else if (servicioBase !== '' && finanzaEditando.cliente_id !== null && !servicioBase.toLowerCase().startsWith('sueldo:')) {
+                } else if (servicioBase !== '' && finanzaEditando.cliente_id !== null && !servicioBase.toLowerCase().startsWith('sueldo:') && finanzaEditando.categoria !== 'Nómina y Salarios') {
                     servManual = servicioBase;
                     servicioBase = '✨ Otro (Especificar)';
                 }
 
-                const esPagoPersonal = finanzaEditando.tipo === 'Gasto' && (
+                const esPagoPersonalLegacy = finanzaEditando.tipo === 'Gasto' && (
                     finanzaEditando.categoria === 'Nómina y Salarios' || 
                     (finanzaEditando.servicio && finanzaEditando.servicio.toLowerCase().startsWith('sueldo:'))
                 );
 
-                let cid = finanzaEditando.cliente_id || '';
-                if (esPagoPersonal) {
-                    setProyectoRelacionadoId(finanzaEditando.cliente_id || '');
-                    cid = 'pago-personal';
-                }
+                // En registros legacy el cliente_id era un vínculo OPCIONAL a cliente/proyecto,
+                // así que se conserva como cliente_id. El personal se deduce por `titular`.
+                const cid = finanzaEditando.cliente_id || '';
+                const pid = finanzaEditando.personal_id || '';
 
                 setFormData({
                     fecha_registro: finanzaEditando.fecha_registro ? finanzaEditando.fecha_registro.split('T')[0] : obtenerFechaHoy(),
@@ -170,6 +192,8 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
                     concepto: finanzaEditando.concepto,
                     monto: finanzaEditando.monto,
                     cliente_id: cid,
+                    personal_id: pid,
+                    proyecto_id: finanzaEditando.proyecto_id || '',
                     servicio: servicioBase,
                     sub_servicio: subServ,
                     servicio_manual: servManual,
@@ -180,26 +204,11 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
                     id_operacion: finanzaEditando.id_operacion || '',
                     cuenta_id: finanzaEditando.cuenta_id || ''
                 });
-
-                if (finanzaEditando.id) {
-                    (async () => {
-                        const { data: fsData } = await supabase
-                            .from('finanza_servicios')
-                            .select('servicio_id')
-                            .eq('finanza_id', finanzaEditando.id);
-                        if (fsData && fsData.length > 0) {
-                            setServiciosSeleccionados(fsData.map(fs => fs.servicio_id));
-                        } else {
-                            setServiciosSeleccionados([]);
-                        }
-                    })();
-                }
             } else {
-                setProyectoRelacionadoId('');
-                setServiciosSeleccionados([]);
                 setFormData({
                     fecha_registro: obtenerFechaHoy(),
-                    tipo: 'Gasto', categoria: '', concepto: '', monto: '', cliente_id: '',
+                    tipo: 'Gasto', categoria: '', concepto: '', monto: '',
+                    cliente_id: '', personal_id: '', proyecto_id: '',
                     servicio: '', sub_servicio: SUB_SERVICIOS_RUTINARIA[0],
                     servicio_manual: '', sub_servicio_manual: '',
                     banco: 'Efectivo', numero_cuenta: '', titular: '', id_operacion: '', cuenta_id: ''
@@ -209,15 +218,32 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
         }
     }, [isOpen, finanzaEditando]);
 
-    const cargarDatosBasicos = async () => {
-        const { data: dataClientes } = await supabase.from('clientes').select('id, nombres').order('nombres', { ascending: true });
-        if (dataClientes) setClientes(dataClientes);
-        const { data: dataPersonal } = await supabase.from('directorio_cuentas').select('*').eq('tipo', 'Personal');
-        if (dataPersonal) setPersonal(dataPersonal);
-        const { data: dataCuentas } = await supabase.from('directorio_cuentas').select('id, alias, banco, numero_cuenta, titular').eq('tipo', 'Propia');
-        if (dataCuentas) setCuentas(dataCuentas);
-        const { data: dataInv } = await supabase.from('inventario').select('id, nombre, cantidad, unidad_medida');
-        if (dataInv) setProductos(dataInv);
+    // Selección independiente de CLIENTE
+    const handleSeleccionarCliente = (id) => {
+        setFormData(prev => ({ ...prev, cliente_id: id }));
+    };
+
+    // Selección independiente de PERSONAL: el anticipo/pago queda asociado
+    // directamente a la cuenta del personal seleccionado (banco, nro. cuenta y titular)
+    const handleSeleccionarPersonal = (id) => {
+        const emp = personal.find(p => p.id === id);
+        if (emp) {
+            setFormData(prev => ({
+                ...prev,
+                personal_id: id,
+                banco: emp.banco || prev.banco,
+                numero_cuenta: emp.numero_cuenta || '',
+                titular: emp.titular || prev.titular,
+                categoria: prev.tipo === 'Gasto' ? 'Nómina y Salarios' : prev.categoria
+            }));
+        } else {
+            setFormData(prev => ({
+                ...prev,
+                personal_id: '',
+                // Si se deselecciona el personal, se limpia la categoría automática
+                categoria: prev.categoria === 'Nómina y Salarios' ? '' : prev.categoria
+            }));
+        }
     };
 
     const handleSeleccionarCuenta = (id) => {
@@ -232,14 +258,32 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
         }
     };
 
-    const toggleServicio = (servicioId) => {
-        setServiciosSeleccionados(prev => {
-            if (prev.includes(servicioId)) {
-                return prev.filter(id => id !== servicioId);
-            } else {
-                return [...prev, servicioId];
+    // Guardar con degradación elegante: si la BD aún no tiene las columnas nuevas
+    // (personal_id / proyecto_id), reintenta sin ellas para no perder el registro.
+    const quitarCamposNuevos = (registro) => {
+        const copia = { ...registro };
+        delete copia.personal_id;
+        delete copia.proyecto_id;
+        return copia;
+    };
+
+    const guardarConRespaldo = async (datos, idEditar) => {
+        if (idEditar) {
+            const { error } = await supabase.from('finanzas').update(datos).eq('id', idEditar);
+            if (!error) return { error: null, degradado: false };
+            if (error.code === '42703' || /column/i.test(error.message || '')) {
+                const { error: err2 } = await supabase.from('finanzas').update(quitarCamposNuevos(datos)).eq('id', idEditar);
+                return { error: err2, degradado: !err2 };
             }
-        });
+            return { error, degradado: false };
+        }
+        const { data, error } = await supabase.from('finanzas').insert([datos]).select().single();
+        if (!error) return { data, error: null, degradado: false };
+        if (error.code === '42703' || /column/i.test(error.message || '')) {
+            const { data: data2, error: err2 } = await supabase.from('finanzas').insert([quitarCamposNuevos(datos)]).select().single();
+            return { data: data2, error: err2, degradado: !err2 };
+        }
+        return { data, error, degradado: false };
     };
 
     const handleSubmit = async (e) => {
@@ -256,71 +300,37 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
                 }
             }
 
-            const primerClienteId = formData.cliente_id && formData.cliente_id !== 'pago-personal' ? formData.cliente_id : null;
-
             const datosParaSupabase = {
                 fecha_registro: formData.fecha_registro,
                 tipo: formData.tipo,
                 categoria: formData.categoria,
                 concepto: formData.concepto,
                 monto: parseFloat(formData.monto),
-                cliente_id: primerClienteId,
+                cliente_id: formData.cliente_id || null,
                 servicio: servicioFinal,
                 banco: formData.banco,
                 numero_cuenta: formData.numero_cuenta,
                 titular: formData.titular,
                 id_operacion: formData.id_operacion,
-                cuenta_id: formData.cuenta_id || null
+                cuenta_id: formData.cuenta_id || null,
+                personal_id: formData.personal_id || null,
+                proyecto_id: formData.proyecto_id || null
             };
 
-            if (formData.cliente_id === 'pago-personal') {
-                datosParaSupabase.cliente_id = proyectoRelacionadoId ? proyectoRelacionadoId : null;
-                datosParaSupabase.categoria = 'Nómina y Salarios';
-            }
-
-            let errFinanza = null;
-            let nuevaFinanza = null;
-
+            let resultado;
             if (finanzaEditando) {
-                const { error } = await supabase.from('finanzas').update(datosParaSupabase).eq('id', finanzaEditando.id);
-                errFinanza = error;
-
-                if (!errFinanza) {
-                    await supabase.from('finanza_servicios').delete().eq('finanza_id', finanzaEditando.id);
-                    if (serviciosSeleccionados.length > 0) {
-                        const registros = serviciosSeleccionados.map(sid => ({
-                            finanza_id: finanzaEditando.id,
-                            servicio_id: sid
-                        }));
-                        await supabase.from('finanza_servicios').insert(registros);
-                    }
-                }
+                resultado = await guardarConRespaldo(datosParaSupabase, finanzaEditando.id);
             } else {
-                const { data, error } = await supabase.from('finanzas').insert([datosParaSupabase]).select().single();
-                nuevaFinanza = data;
-                errFinanza = error;
-
-                if (!errFinanza && serviciosSeleccionados.length > 0 && nuevaFinanza) {
-                    const registros = serviciosSeleccionados.map(sid => ({
-                        finanza_id: nuevaFinanza.id,
-                        servicio_id: sid
-                    }));
-                    await supabase.from('finanza_servicios').insert(registros);
-                }
-
-                if (!errFinanza && formData.tipo === 'Gasto' && consumo.inventario_id && nuevaFinanza) {
-                    const producto = productos.find(p => p.id === consumo.inventario_id);
-                    if (producto) {
-                        await supabase.from('consumo_inventario').insert({ finanza_id: nuevaFinanza.id, inventario_id: consumo.inventario_id, cantidad_usada: consumo.cantidad });
-                        await supabase.from('inventario').update({ cantidad: producto.cantidad - consumo.cantidad }).eq('id', consumo.inventario_id);
-                    }
-                }
+                resultado = await guardarConRespaldo(datosParaSupabase, null);
             }
 
             setGuardando(false);
-            if (errFinanza) {
-                alert('Error al guardar: ' + (errFinanza.message || 'Error desconocido'));
+            if (resultado.error) {
+                alert('Error al guardar: ' + (resultado.error.message || 'Error desconocido'));
             } else {
+                if (resultado.degradado) {
+                    alert('El movimiento se guardó, pero SIN personal ni proyecto.\nEjecuta la migración SQL "20260824000000_proyectos_personal_origen.sql" en Supabase para habilitar esos campos.');
+                }
                 onGuardado();
                 onClose();
             }
@@ -333,7 +343,10 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
+        <div
+            className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4"
+            onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+        >
             <div className="bg-white rounded-3xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] border-t-4 border-t-[#ffdd1c]">
 
                 <div className="p-6 border-b bg-white flex justify-between items-center relative overflow-hidden">
@@ -402,115 +415,103 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
                             </div>
                         )}
 
-                        <div className="grid grid-cols-2 gap-4">
+                        {/* SELECTORES INDEPENDIENTES: CLIENTE y PERSONAL */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div className="flex flex-col gap-1.5">
-                                <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest pl-1">Cliente / Personal</label>
-                                <select value={formData.cliente_id} onChange={e => setFormData({ ...formData, cliente_id: e.target.value })} className="border-2 border-slate-100 rounded-xl px-4 py-3 text-sm font-bold bg-white outline-none focus:border-[#0055af]">
-                                    <option value="">-- Seleccionar --</option>
-                                    {formData.tipo === 'Gasto' && (<option value="pago-personal" className="bg-[#ffdd1c]/20 text-[#0055af]">🏢 PAGO AL PERSONAL</option>)}
+                                <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest pl-1">👤 Cliente</label>
+                                <select value={formData.cliente_id || ''} onChange={e => handleSeleccionarCliente(e.target.value)} className="border-2 border-slate-100 rounded-xl px-4 py-3 text-sm font-bold bg-white outline-none focus:border-[#0055af]">
+                                    <option value="">-- Sin cliente --</option>
                                     {clientes.map(c => <option key={c.id} value={c.id}>{c.nombres}</option>)}
                                 </select>
                             </div>
-                            {formData.cliente_id === 'pago-personal' ? (
-                                <div className="flex flex-col gap-4 w-full">
-                                    <div className="flex flex-col gap-1.5 w-full">
-                                        <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest pl-1">Seleccionar Empleado</label>
-                                        <select onChange={e => {
-                                            const emp = personal.find(p => p.id === e.target.value);
-                                            if (emp) setFormData({ ...formData, servicio: `Sueldo: ${emp.titular}`, banco: emp.banco, numero_cuenta: emp.numero_cuenta, titular: emp.titular });
-                                        }} className="border-2 border-slate-100 rounded-xl px-4 py-3 text-sm font-bold bg-white outline-none focus:border-[#0055af] w-full">
-                                            <option value="">-- Seleccionar Empleado --</option>
-                                            {personal.map(emp => <option key={emp.id} value={emp.id}>{emp.titular}</option>)}
-                                        </select>
-                                    </div>
-                                    <div className="flex flex-col gap-1.5 w-full">
-                                        <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest pl-1">Vincular a Proyecto / Cliente (Opcional)</label>
-                                        <select
-                                            value={proyectoRelacionadoId}
-                                            onChange={e => setProyectoRelacionadoId(e.target.value)}
-                                            className="border-2 border-slate-100 rounded-xl px-4 py-3 text-sm font-bold bg-white outline-none focus:border-[#0055af] w-full"
-                                        >
-                                            <option value="">-- Ninguno / Gasto General --</option>
-                                            {clientes.map(c => <option key={c.id} value={c.id}>{c.nombres}</option>)}
-                                        </select>
-                                    </div>
-                                </div>
-                            ) : (
-                                <div className="flex flex-col gap-3 w-full">
-                                    {etiquetas.length > 0 && (
-                                        <div className="flex flex-col gap-1.5">
-                                            <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest pl-1">Filtrar por Etiqueta</label>
-                                            <select 
-                                                value={etiquetaSeleccionada} 
-                                                onChange={e => {
-                                                    setEtiquetaSeleccionada(e.target.value);
-                                                    setFormData({ ...formData, servicio: '' });
-                                                }}
-                                                className="border-2 border-slate-100 rounded-xl px-4 py-3 text-sm font-bold bg-white outline-none focus:border-[#0055af]"
-                                            >
-                                                <option value="">-- Todas las etiquetas --</option>
-                                                {etiquetas.map(e => (
-                                                    <option key={e.id} value={e.id}>{e.nombre}</option>
-                                                ))}
-                                            </select>
-                                        </div>
-                                    )}
 
-                                    <div className="flex flex-col gap-1.5">
-                                        <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest pl-1">Servicio Realizado</label>
-                                        <select
-                                            value={formData.servicio}
-                                            onChange={e => setFormData({ ...formData, servicio: e.target.value })}
-                                            className="border-2 border-slate-100 rounded-xl px-4 py-3 text-sm font-bold bg-white outline-none focus:border-[#0055af]"
-                                        >
-                                            <option value="">-- Seleccionar Servicio --</option>
-                                            {catalogoServicios.map(s => (
-                                                <option key={s} value={s}>{s}</option>
-                                            ))}
-                                        </select>
-                                    </div>
-
-                                    {formData.servicio === '🧹 Limpieza Rutinaria' && (
-                                        <div className="flex flex-col gap-2 animate-in slide-in-from-top-2">
-                                            <select value={formData.sub_servicio} onChange={e => setFormData({ ...formData, sub_servicio: e.target.value })} className="border-2 border-blue-200 bg-blue-50 text-[#0055af] rounded-xl px-4 py-2 text-xs font-black outline-none focus:border-[#0055af]">
-                                                {SUB_SERVICIOS_RUTINARIA.map(sub => <option key={sub} value={sub}>{sub}</option>)}
-                                            </select>
-
-                                            {formData.sub_servicio === 'Otro (Especificar)' && (
-                                                <input type="text" placeholder="¿Qué se va a lavar?" required className="border-2 border-emerald-200 bg-emerald-50 rounded-xl px-4 py-2 text-sm font-bold outline-none focus:border-emerald-500 animate-in slide-in-from-top-2" value={formData.sub_servicio_manual} onChange={e => setFormData({ ...formData, sub_servicio_manual: e.target.value })} />
-                                            )}
-                                        </div>
-                                    )}
-                                </div>
-                            )}
-                        </div>
-
-                        {formData.cliente_id !== 'pago-personal' && (
-                            <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200">
-                                <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest pl-1 block mb-2">Proyectos Relacionados (múltiples)</label>
-                                <div className="flex flex-wrap gap-2">
-                                    {serviciosConEtiqueta.map(s => (
-                                        <button
-                                            key={s.id}
-                                            type="button"
-                                            onClick={() => toggleServicio(s.id)}
-                                            className={`px-3 py-1.5 rounded-full text-[10px] font-bold border transition-all ${
-                                                serviciosSeleccionados.includes(s.id)
-                                                    ? 'bg-[#0055af] text-white border-[#0055af]'
-                                                    : 'bg-white text-slate-500 border-slate-200 hover:border-[#0055af] hover:text-[#0055af]'
-                                            }`}
-                                        >
-                                            {s.etiqueta_nombre ? `[${s.etiqueta_nombre}] ` : ''}{s.nombre}
-                                        </button>
-                                    ))}
-                                </div>
-                                {serviciosSeleccionados.length > 0 && (
-                                    <p className="text-[9px] text-slate-400 mt-2 font-medium">
-                                        {serviciosSeleccionados.length} proyecto(s) seleccionado(s)
+                            <div className="flex flex-col gap-1.5">
+                                <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest pl-1">💼 Personal</label>
+                                <select value={formData.personal_id || ''} onChange={e => handleSeleccionarPersonal(e.target.value)} className="border-2 border-slate-100 rounded-xl px-4 py-3 text-sm font-bold bg-white outline-none focus:border-[#0055af]">
+                                    <option value="">-- Sin personal --</option>
+                                    {personal.map(emp => <option key={emp.id} value={emp.id}>{emp.titular}</option>)}
+                                </select>
+                                {(formData.personal_id || formData.categoria === 'Nómina y Salarios') && (
+                                    <p className="text-[9px] font-bold text-amber-600 leading-snug">
+                                        💡 Anticipo/pago asociado directamente a la cuenta del personal{formData.personal_id ? ` (${formData.banco}${formData.numero_cuenta ? ` • ${formData.numero_cuenta}` : ''})` : ''}.
                                     </p>
                                 )}
                             </div>
+                        </div>
+
+                        {/* ETIQUETA y SERVICIO REALIZADO */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="flex flex-col gap-1.5">
+                                <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest pl-1">🏷️ Etiqueta</label>
+                                <select 
+                                    value={etiquetaSeleccionada} 
+                                    onChange={e => {
+                                        setEtiquetaSeleccionada(e.target.value);
+                                        setFormData(prev => ({ ...prev, servicio: '' }));
+                                    }}
+                                    className="border-2 border-slate-100 rounded-xl px-4 py-3 text-sm font-bold bg-white outline-none focus:border-[#0055af]"
+                                >
+                                    <option value="">-- Todas las etiquetas --</option>
+                                    {etiquetas.map(et => (
+                                        <option key={et.id} value={et.id}>{et.nombre}</option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div className="flex flex-col gap-1.5">
+                                <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest pl-1">🛠️ Servicio Realizado</label>
+                                <select
+                                    value={formData.servicio}
+                                    onChange={e => setFormData({ ...formData, servicio: e.target.value })}
+                                    className="border-2 border-slate-100 rounded-xl px-4 py-3 text-sm font-bold bg-white outline-none focus:border-[#0055af]"
+                                >
+                                    <option value="">-- Seleccionar Servicio --</option>
+                                    {catalogoServicios.map(s => (
+                                        <option key={s} value={s}>{s}</option>
+                                    ))}
+                                </select>
+                            </div>
+                        </div>
+
+                        {formData.servicio === '🧹 Limpieza Rutinaria' && (
+                            <div className="flex flex-col gap-2 animate-in slide-in-from-top-2">
+                                <select value={formData.sub_servicio} onChange={e => setFormData({ ...formData, sub_servicio: e.target.value })} className="border-2 border-blue-200 bg-blue-50 text-[#0055af] rounded-xl px-4 py-2 text-xs font-black outline-none focus:border-[#0055af]">
+                                    {SUB_SERVICIOS_RUTINARIA.map(sub => <option key={sub} value={sub}>{sub}</option>)}
+                                </select>
+
+                                {formData.sub_servicio === 'Otro (Especificar)' && (
+                                    <input type="text" placeholder="¿Qué se va a lavar?" required className="border-2 border-emerald-200 bg-emerald-50 rounded-xl px-4 py-2 text-sm font-bold outline-none focus:border-emerald-500 animate-in slide-in-from-top-2" value={formData.sub_servicio_manual} onChange={e => setFormData({ ...formData, sub_servicio_manual: e.target.value })} />
+                                )}
+                            </div>
                         )}
+
+                        {/* PROYECTO (después de Cliente, Personal, Etiqueta y Servicio) */}
+                        <div className="flex flex-col gap-1.5">
+                            <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest pl-1">📁 Proyecto</label>
+                            <select
+                                value={formData.proyecto_id || ''}
+                                onChange={e => setFormData({ ...formData, proyecto_id: e.target.value })}
+                                className="border-2 border-slate-100 rounded-xl px-4 py-3 text-sm font-bold bg-white outline-none focus:border-[#0055af]"
+                            >
+                                <option value="">-- Sin proyecto --</option>
+                                {proyectos.length > 0 && proyectos.some(p => p.cliente_id && formData.cliente_id && p.cliente_id === formData.cliente_id) && (
+                                    <optgroup label="Proyectos del cliente seleccionado">
+                                        {proyectos.filter(p => p.cliente_id && p.cliente_id === formData.cliente_id).map(p => (
+                                            <option key={p.id} value={p.id}>{p.nombre}</option>
+                                        ))}
+                                    </optgroup>
+                                )}
+                                <optgroup label="Todos los proyectos">
+                                    {proyectos.map(p => {
+                                        const clienteNombre = p.cliente_id ? (clientes.find(c => c.id === p.cliente_id)?.nombres || '') : '';
+                                        return <option key={`all-${p.id}`} value={p.id}>{p.nombre}{clienteNombre ? ` — ${clienteNombre}` : ''}</option>;
+                                    })}
+                                </optgroup>
+                            </select>
+                            {proyectos.length === 0 && (
+                                <p className="text-[9px] text-slate-400 font-medium">No hay proyectos creados. Créalos desde el menú <span className="font-black text-[#0055af]">Etiquetas → Crear Proyectos</span>.</p>
+                            )}
+                        </div>
                     </form>
                 </div>
 
