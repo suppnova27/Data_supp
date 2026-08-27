@@ -1,7 +1,9 @@
 import { test, expect } from '@playwright/test';
 import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import * as XLSX from 'xlsx';
-import { createSupabaseMockHandler, mockLoggedInSession, resetMockData, injectSessionIntoStorage } from './helpers/supabase-mock.js';
+import { createSupabaseMockHandler, mockLoggedInSession, resetMockData, injectSessionIntoStorage, MOCK_DATA } from './helpers/supabase-mock.js';
 
 // Lee un archivo xlsx descargado y devuelve las filas como objetos
 function leerWorkbook(ruta) {
@@ -126,5 +128,57 @@ test.describe('Export Excel: vinculacion de Proyecto y columnas nuevas', () => {
     const fila = rows.find(r => String(r['Detalle / Concepto']).includes('TEST SIN PROYECTO'));
     expect(fila).toBeTruthy();
     expect(String(fila['Proyecto'] || '')).toBe('-');
+  });
+});
+
+test.describe('Import Excel: columna Etiqueta(s) y re-clasificacion', () => {
+  test.beforeEach(async ({ page }) => {
+    const session = mockLoggedInSession();
+    await injectSessionIntoStorage(page, session);
+    resetMockData();
+    await page.route('**/*.supabase.co/**', createSupabaseMockHandler());
+    await page.goto('/');
+    await page.waitForTimeout(5000);
+    await page.click('text=Finanzas');
+    await page.waitForTimeout(2000);
+  });
+
+  test('importa un archivo con Etiqueta(s) nueva y re-clasifica el servicio', async ({ page }) => {
+    // 1. Crear archivo Excel con la columna Etiqueta(s)
+    const archivo = path.join(os.tmpdir(), `import-etiqueta-${Date.now()}.xlsx`);
+    const filas = [{
+      'Fecha de Registro': '01/08/2026',
+      'Tipo': 'Ingreso',
+      'Detalle / Concepto': 'IMPORT ETIQUETA TEST',
+      'Monto (Bs)': 100,
+      'Cliente': 'Maria Garcia',
+      'Servicio Realizado': 'Limpieza de Oficina',
+      'Etiqueta(s)': 'Nueva Etiqueta X',
+      'Proyecto': '',
+    }];
+    const ws = XLSX.utils.json_to_sheet(filas);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Movimientos');
+    XLSX.writeFile(wb, archivo);
+
+    // 2. Importar desde la UI
+    const dialogPromise = page.waitForEvent('dialog');
+    await page.setInputFiles('input[type="file"]', archivo);
+    const dialog = await dialogPromise;
+    const mensaje = dialog.message();
+    await dialog.accept();
+
+    // 3. Verificar mensajes de éxito + re-clasificación
+    expect(mensaje).toContain('Se importaron 1 registros');
+    expect(mensaje).toContain('re-clasificado');
+
+    // 4. Verificar en el "mock" que la etiqueta se creó y el servicio cambió
+    const etiquetaNueva = MOCK_DATA.etiquetas.find(e => e.nombre === 'Nueva Etiqueta X');
+    expect(etiquetaNueva).toBeTruthy();
+    const servicio = MOCK_DATA.servicios.find(s => s.nombre === 'Limpieza de Oficina');
+    expect(servicio).toBeTruthy();
+    expect(servicio.etiqueta_id).toBe(etiquetaNueva.id);
+
+    fs.unlinkSync(archivo);
   });
 });

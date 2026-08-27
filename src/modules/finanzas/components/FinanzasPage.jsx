@@ -409,15 +409,21 @@ export default function FinanzasPage() {
                 return;
             }
 
-            const [resClientes, resCuentas, resProyectos] = await Promise.all([
+            const [resClientes, resCuentas, resProyectos, resEtiquetas, resServicios] = await Promise.all([
                 supabase.from('clientes').select('id, nombres, apellido_paterno, telefono'),
                 supabase.from('directorio_cuentas').select('id, titular').eq('tipo', 'Personal'),
-                supabase.from('proyectos').select('id, nombre').then(r => r).catch(() => ({ data: null }))
+                supabase.from('proyectos').select('id, nombre').then(r => r).catch(() => ({ data: null })),
+                supabase.from('etiquetas').select('id, nombre').then(r => r).catch(() => ({ data: null })),
+                supabase.from('servicios').select('id, nombre, etiqueta_id').then(r => r).catch(() => ({ data: null }))
             ]);
             const listaClientes = resClientes.data;
             const listaPersonal = resCuentas.data || [];
             const listaProyectos = resProyectos.data || [];
+            const listaEtiquetas = resEtiquetas.data || [];
+            const listaServicios = resServicios.data || [];
 
+            // Re-clasificaciones de etiqueta detectadas en el archivo (servicio -> etiqueta)
+            const reclasificaciones = new Map();
             const registrosAAgregar = [];
 
             for (const row of jsonRows) {
@@ -519,6 +525,16 @@ export default function FinanzasPage() {
                 const titular = String(row['Titular Cuenta'] || row['Titular'] || '');
                 const id_operacion = String(row['ID Operación / Ref'] || row['ID Operacion'] || row['Ref'] || '');
 
+                // ETIQUETA(S): la columna del export se lee para re-clasificar el servicio.
+                // Solo se aplica cuando hay un único valor y el movimiento trae servicio.
+                const etiquetaTexto = String(row['Etiqueta(s)'] || row['Etiqueta'] || '').trim();
+                const etiquetaNombre = (etiquetaTexto && etiquetaTexto !== '-' && !etiquetaTexto.includes(','))
+                    ? etiquetaTexto
+                    : '';
+                if (etiquetaNombre && servicio) {
+                    reclasificaciones.set(`${servicio}|||${etiquetaNombre}`, { servicio, etiquetaNombre });
+                }
+
                 registrosAAgregar.push({
                     fecha_registro,
                     tipo: tipo === 'Gasto' ? 'Gasto' : 'Ingreso',
@@ -559,7 +575,48 @@ export default function FinanzasPage() {
                 console.error("Error al importar datos:", error);
                 alert("Error al guardar los registros en la base de datos.");
             } else {
-                alert(`¡Éxito! Se importaron ${registrosAAgregar.length} registros correctamente.${degradado ? '\n⚠️ Sin Personal/Proyecto: ejecuta la migración SQL 20260824000000 en Supabase.' : ''}`);
+                // APLICAR RE-CLASIFICACION DE ETIQUETAS (columna "Etiqueta(s)" del archivo)
+                let reclasificados = 0;
+                if (reclasificaciones.size > 0) {
+                    const etiquetasIdMap = {};
+                    listaEtiquetas.forEach(e => { etiquetasIdMap[e.nombre.toLowerCase()] = e.id; });
+                    const normalizar = (t) => String(t).replace(/^[^\p{L}\p{N}]+/u, '').trim().toLowerCase();
+
+                    for (const { servicio, etiquetaNombre } of reclasificaciones.values()) {
+                        try {
+                            // 1) Encontrar el servicio en el catálogo (exacto o base sin emoji)
+                            const baseServicio = servicio.split(' - ')[0];
+                            let serv = listaServicios.find(s => s.nombre === servicio)
+                                || listaServicios.find(s => normalizar(s.nombre) === normalizar(baseServicio))
+                                || listaServicios.find(s => s.nombre.toLowerCase().includes(servicio.toLowerCase()));
+                            if (!serv) continue;
+
+                            // 2) Encontrar la etiqueta o crearla
+                            let etqId = etiquetasIdMap[etiquetaNombre.toLowerCase()];
+                            if (!etqId) {
+                                const { data: creada, error: errC } = await supabase
+                                    .from('etiquetas')
+                                    .insert([{ nombre: etiquetaNombre, activa: true }])
+                                    .select()
+                                    .maybeSingle();
+                                if (!errC && creada) {
+                                    etqId = creada.id;
+                                    etiquetasIdMap[etiquetaNombre.toLowerCase()] = etqId;
+                                }
+                            }
+
+                            // 3) Re-clasificar el servicio si cambió
+                            if (etqId && serv.etiqueta_id !== etqId) {
+                                await supabase.from('servicios').update({ etiqueta_id: etqId }).eq('id', serv.id);
+                                reclasificados++;
+                            }
+                        } catch (errReclasif) {
+                            console.warn('Re-clasificación omitida:', errReclasif.message);
+                        }
+                    }
+                }
+
+                alert(`¡Éxito! Se importaron ${registrosAAgregar.length} registros correctamente.${degradado ? '\n⚠️ Sin Personal/Proyecto: ejecuta la migración SQL 20260824000000 en Supabase.' : ''}${reclasificados > 0 ? `\n🏷️ ${reclasificados} servicio(s) re-clasificado(s) con la etiqueta del archivo.` : ''}`);
                 fetchFinanzas();
             }
         } catch (err) {
