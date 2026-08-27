@@ -103,7 +103,7 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
         tipo: 'Gasto', categoria: '', concepto: '', monto: '',
         cliente_id: '', personal_id: '', proyecto_id: '',
         servicio: '', sub_servicio: SUB_SERVICIOS_RUTINARIA[0],
-        servicio_manual: '', sub_servicio_manual: '',
+        servicio_manual: '', sub_servicio_manual: '', detalle_servicio: '',
         banco: 'Efectivo', numero_cuenta: '', titular: '', id_operacion: '', cuenta_id: ''
     });
 
@@ -158,6 +158,7 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
                 let subServ = SUB_SERVICIOS_RUTINARIA[0];
                 let servManual = '';
                 let subManual = '';
+                let detalleServicio = '';
 
                 if (servicioBase.startsWith('🧹 Limpieza Rutinaria - ')) {
                     const partes = servicioBase.split(' - ');
@@ -170,15 +171,16 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
                         subServ = 'Otro (Especificar)';
                         subManual = subExtraido;
                     }
-                } else if (servicioBase !== '' && finanzaEditando.cliente_id !== null && !servicioBase.toLowerCase().startsWith('sueldo:') && finanzaEditando.categoria !== 'Nómina y Salarios') {
-                    servManual = servicioBase;
-                    servicioBase = '✨ Otro (Especificar)';
+                } else if (servicioBase && !servicioBase.toLowerCase().startsWith('sueldo:')) {
+                    // Separar detalle genérico: "Servicio - Detalle"
+                    const idxGuion = servicioBase.indexOf(' - ');
+                    if (idxGuion > 0) {
+                        detalleServicio = servicioBase.substring(idxGuion + 3).trim();
+                        servicioBase = servicioBase.substring(0, idxGuion).trim();
+                    }
+                    // Si el servicio base no está en el catálogo, el select lo muestra
+                    // como opción "(actual)" gracias al fix de conservación.
                 }
-
-                const esPagoPersonalLegacy = finanzaEditando.tipo === 'Gasto' && (
-                    finanzaEditando.categoria === 'Nómina y Salarios' || 
-                    (finanzaEditando.servicio && finanzaEditando.servicio.toLowerCase().startsWith('sueldo:'))
-                );
 
                 // En registros legacy el cliente_id era un vínculo OPCIONAL a cliente/proyecto,
                 // así que se conserva como cliente_id. El personal se deduce por `titular`.
@@ -198,6 +200,7 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
                     sub_servicio: subServ,
                     servicio_manual: servManual,
                     sub_servicio_manual: subManual,
+                    detalle_servicio: detalleServicio,
                     banco: finanzaEditando.banco || 'Efectivo',
                     numero_cuenta: finanzaEditando.numero_cuenta || '',
                     titular: finanzaEditando.titular || '',
@@ -210,7 +213,7 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
                     tipo: 'Gasto', categoria: '', concepto: '', monto: '',
                     cliente_id: '', personal_id: '', proyecto_id: '',
                     servicio: '', sub_servicio: SUB_SERVICIOS_RUTINARIA[0],
-                    servicio_manual: '', sub_servicio_manual: '',
+                    servicio_manual: '', sub_servicio_manual: '', detalle_servicio: '',
                     banco: 'Efectivo', numero_cuenta: '', titular: '', id_operacion: '', cuenta_id: ''
                 });
                 setConsumo({ inventario_id: '', cantidad: 0 });
@@ -297,6 +300,15 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
                 const subFinal = formData.sub_servicio === 'Otro (Especificar)' ? formData.sub_servicio_manual : formData.sub_servicio;
                 if (subFinal) {
                     servicioFinal = `${formData.servicio} - ${subFinal}`;
+                }
+            }
+
+            // Detalle genérico del servicio (para cualquier servicio, no solo Limpieza Rutinaria)
+            if (servicioFinal && formData.detalle_servicio && formData.detalle_servicio.trim()) {
+                const detalleLimpio = formData.detalle_servicio.trim();
+                // Evitar duplicar si ya terminó con ese detalle
+                if (!String(servicioFinal).endsWith(`- ${detalleLimpio}`)) {
+                    servicioFinal = `${servicioFinal} - ${detalleLimpio}`;
                 }
             }
 
@@ -491,6 +503,20 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
                                 {formData.sub_servicio === 'Otro (Especificar)' && (
                                     <input type="text" placeholder="¿Qué se va a lavar?" required className="border-2 border-emerald-200 bg-emerald-50 rounded-xl px-4 py-2 text-sm font-bold outline-none focus:border-emerald-500 animate-in slide-in-from-top-2" value={formData.sub_servicio_manual} onChange={e => setFormData({ ...formData, sub_servicio_manual: e.target.value })} />
                                 )}
+                            </div>
+                        )}
+
+                        {/* DETALLE GENERICO DEL SERVICIO (cualquier servicio excepto Limpieza Rutinaria) */}
+                        {formData.servicio && formData.servicio !== '🧹 Limpieza Rutinaria' && (
+                            <div className="flex flex-col gap-1.5 animate-in slide-in-from-top-2">
+                                <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest pl-1">📝 Detalle del Servicio (Opcional)</label>
+                                <input
+                                    type="text"
+                                    placeholder="Ej. 5 cuerpos, con productos incluidos..."
+                                    value={formData.detalle_servicio || ''}
+                                    onChange={e => setFormData({ ...formData, detalle_servicio: e.target.value })}
+                                    className="border-2 border-blue-100 bg-blue-50 rounded-xl px-4 py-2 text-sm font-bold outline-none focus:border-[#0055af]"
+                                />
                             </div>
                         )}
 

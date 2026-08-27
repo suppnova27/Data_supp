@@ -211,6 +211,54 @@ test.describe('Formulario: filtrar por etiqueta conserva el servicio', () => {
   });
 });
 
+test.describe('Detalle generico del servicio', () => {
+  test.beforeEach(async ({ page }) => {
+    const session = mockLoggedInSession();
+    await injectSessionIntoStorage(page, session);
+    resetMockData();
+    await page.route('**/*.supabase.co/**', createSupabaseMockHandler());
+    await page.goto('/');
+    await page.waitForTimeout(5000);
+    await page.click('text=Finanzas');
+    await page.waitForTimeout(2000);
+  });
+
+  test('registra movimiento con detalle de servicio y aparece en el Excel', async ({ page }) => {
+    const registerBtn = page.locator('button:has-text("Registrar")').first();
+    if (await registerBtn.isVisible()) {
+      await registerBtn.click();
+      await page.waitForTimeout(1500);
+    }
+
+    // Cuenta (required) + cliente + servicio
+    await page.locator('select:has(option[value="cta-001"])').first().selectOption('cta-001');
+    await page.locator('select:has(option[value="cli-001"])').first().selectOption('cli-001');
+    await page.locator('select:has(option[value="Limpieza de Oficina"])').first().selectOption('Limpieza de Oficina');
+
+    // Detalle genérico del servicio
+    const detalleInput = page.locator('input[placeholder*="cuerpos"]').first();
+    if (await detalleInput.isVisible()) {
+      await detalleInput.fill('Con productos incluidos');
+    }
+
+    await page.locator('input[type="number"]').first().fill('120');
+    await page.fill('input[placeholder*="Concepto"]', 'TEST DETALLE SERVICIO');
+    await page.click('button[type="submit"]:has-text("Confirmar")');
+    await page.waitForTimeout(2500);
+
+    const downloadPromise = page.waitForEvent('download');
+    await page.click('button:has-text("Exportar Excel")');
+    const download = await downloadPromise;
+    const filePath = await download.path();
+
+    const rows = leerWorkbook(filePath);
+    const fila = rows.find(r => String(r['Detalle / Concepto']).includes('TEST DETALLE SERVICIO'));
+    expect(fila).toBeTruthy();
+    expect(fila['Servicio Realizado']).toBe('Limpieza de Oficina');
+    expect(fila['Detalle Servicio']).toBe('Con productos incluidos');
+  });
+});
+
 test.describe('Import Excel: columna Etiqueta(s) y re-clasificacion', () => {
   test.beforeEach(async ({ page }) => {
     const session = mockLoggedInSession();
