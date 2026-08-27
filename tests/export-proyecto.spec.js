@@ -83,7 +83,7 @@ test.describe('Export Excel: vinculacion de Proyecto y columnas nuevas', () => {
 
     // Columnas esperadas presentes
     const headers = Object.keys(rows[0] || {});
-    for (const col of ['Etiqueta(s)', 'Servicio Realizado', 'Detalle Servicio', 'Personal', 'Proyecto', 'Cliente']) {
+    for (const col of ['Etiqueta(s)', 'Servicio Realizado', 'Detalle Servicio', 'Personal', 'Proyecto', 'Descripción Proyecto', 'Cliente']) {
       expect(headers).toContain(col);
     }
 
@@ -91,8 +91,46 @@ test.describe('Export Excel: vinculacion de Proyecto y columnas nuevas', () => {
     const fila = rows.find(r => String(r['Detalle / Concepto']).includes('TEST PROYECTO E2E'));
     expect(fila).toBeTruthy();
     expect(fila['Proyecto']).toBe('Oficina Maria Garcia');
+    expect(fila['Descripción Proyecto']).toBe('Limpieza semanal de oficina');
+    expect(fila['Cliente']).toContain('Maria Garcia');
     expect(fila['Servicio Realizado']).toBe('Limpieza de Oficina');
     expect(fila['Detalle Servicio']).toBe('-');
+  });
+
+  test('pago de personal con cliente vinculado muestra el cliente en el Excel', async ({ page }) => {
+    // El cliente NO debe ocultarse solo porque sea un pago de personal/nómina
+    const registerBtn = page.locator('button:has-text("Registrar")').first();
+    if (await registerBtn.isVisible()) {
+      await registerBtn.click();
+      await page.waitForTimeout(1500);
+    }
+
+    await page.locator('input[type="number"]').first().fill('180');
+    await page.fill('input[placeholder*="Concepto"]', 'TEST PERSONAL CLIENTE');
+
+    // Cuenta bancaria (required)
+    await page.locator('select:has(option[value="cta-001"])').first().selectOption('cta-001');
+    // Cliente (Maria Garcia)
+    await page.locator('select:has(option[value="cli-001"])').first().selectOption('cli-001');
+    // Personal (Juan Perez -> cta-002). Al ser Gasto, se marca categoria Nómina y Salarios
+    await page.locator('select:has(option[value="cta-002"])').first().selectOption('cta-002');
+    // Proyecto
+    await page.locator('select:has(option[value="pro-001"])').first().selectOption('pro-001');
+
+    await page.click('button[type="submit"]:has-text("Confirmar")');
+    await page.waitForTimeout(2500);
+
+    const downloadPromise = page.waitForEvent('download');
+    await page.click('button:has-text("Exportar Excel")');
+    const download = await downloadPromise;
+    const filePath = await download.path();
+
+    const rows = leerWorkbook(filePath);
+    const fila = rows.find(r => String(r['Detalle / Concepto']).includes('TEST PERSONAL CLIENTE'));
+    expect(fila).toBeTruthy();
+    expect(fila['Cliente']).toContain('Maria Garcia');
+    expect(fila['Personal']).toBe('Juan Perez');
+    expect(fila['Proyecto']).toBe('Oficina Maria Garcia');
   });
 
   test('crear movimiento SIN proyecto deja columna Proyecto vacia (comportamiento esperado)', async ({ page }) => {

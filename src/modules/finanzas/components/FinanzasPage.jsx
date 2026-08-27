@@ -58,7 +58,7 @@ export default function FinanzasPage() {
         const [resFinanzas, resCuentas, resProyectos, resServicios, resEtiquetas] = await Promise.all([
             supabase.from('finanzas').select('*, clientes(nombres, apellido_paterno, telefono)').order('fecha_registro', { ascending: false }),
             supabase.from('directorio_cuentas').select('id, alias, titular'),
-            supabase.from('proyectos').select('id, nombre').then(r => r).catch(() => ({ data: null })),
+            supabase.from('proyectos').select('id, nombre, descripcion').then(r => r).catch(() => ({ data: null })),
             supabase.from('servicios').select('id, nombre, etiqueta_id'),
             supabase.from('etiquetas').select('id, nombre')
         ]);
@@ -81,7 +81,7 @@ export default function FinanzasPage() {
             (resCuentas.data || []).forEach(p => { personalMap[p.id] = p; });
 
             const proyectosMap = {};
-            (resProyectos.data || []).forEach(p => { proyectosMap[p.id] = p.nombre; });
+            (resProyectos.data || []).forEach(p => { proyectosMap[p.id] = p; });
 
             const finanzaIds = data.map(f => f.id);
             let serviciosMap = {};
@@ -110,7 +110,8 @@ export default function FinanzasPage() {
                 ...f,
                 servicios_vinculados: serviciosMap[f.id] || [],
                 personal_info: f.personal_id ? (personalMap[f.personal_id] || null) : null,
-                proyecto_nombre: f.proyecto_id ? (proyectosMap[f.proyecto_id] || '') : ''
+                proyecto_nombre: f.proyecto_id ? (proyectosMap[f.proyecto_id]?.nombre || '') : '',
+                proyecto_descripcion: f.proyecto_id ? (proyectosMap[f.proyecto_id]?.descripcion || '') : ''
             }));
 
             setFinanzas(enriched);
@@ -234,8 +235,9 @@ export default function FinanzasPage() {
         return nombres.size > 0 ? Array.from(nombres).join(', ') : '-';
     };
 
-    // PROYECTO vinculado al movimiento
+    // PROYECTO vinculado al movimiento (+ descripción)
     const obtenerProyecto = (f) => f.proyecto_nombre || '-';
+    const obtenerDescripcionProyecto = (f) => f.proyecto_descripcion || '-';
 
     const obtenerSufijoPeriodo = () => {
         if (filtroTipoPeriodo === 'Día') {
@@ -264,7 +266,7 @@ export default function FinanzasPage() {
         //    Cliente y Personal son columnas independientes; Etiquetas,
         //    Servicio Realizado y Proyecto van en columnas propias sin duplicar.
         const datosFormateados = finanzasFiltradas.map(f => {
-            const esPersonal = esPagoPersonal(f);
+            const tieneCliente = Boolean(f.clientes?.nombres);
 
             return {
                 'Fecha de Registro': formatearFecha(f.fecha_registro),
@@ -272,13 +274,15 @@ export default function FinanzasPage() {
                 'Categoría': f.categoria || '-',
                 'Detalle / Concepto': f.concepto || '-',
                 'Monto (Bs)': Number(f.monto),
-                'Cliente': esPersonal ? '-' : obtenerNombresClientes(f).join(', '),
-                'Celular Cliente': esPersonal ? '-' : obtenerTelefonoCliente(f),
+                // Cliente visible SIEMPRE si está vinculado (incluso en pagos de personal)
+                'Cliente': tieneCliente ? obtenerNombresClientes(f).join(', ') : '-',
+                'Celular Cliente': obtenerTelefonoCliente(f),
                 'Personal': obtenerNombrePersonal(f),
                 'Etiqueta(s)': obtenerEtiquetas(f),
                 'Servicio Realizado': obtenerServicioRealizado(f),
                 'Detalle Servicio': obtenerDetalleServicio(f),
                 'Proyecto': obtenerProyecto(f),
+                'Descripción Proyecto': obtenerDescripcionProyecto(f),
                 'Banco / Entidad': f.banco || 'Efectivo',
                 'Nro. Cuenta': f.numero_cuenta || '-',
                 'Titular Cuenta': f.titular || '-',
@@ -303,6 +307,7 @@ export default function FinanzasPage() {
             { wch: 28 }, // Servicio Realizado
             { wch: 22 }, // Detalle Servicio
             { wch: 26 }, // Proyecto
+            { wch: 26 }, // Descripción Proyecto
             { wch: 16 }, // Banco
             { wch: 16 }, // Nro cuenta
             { wch: 24 }, // Titular
@@ -350,7 +355,7 @@ export default function FinanzasPage() {
                     alignment: {
                         horizontal: C === 4 ? 'right' : (C === 1 ? 'center' : 'left'),
                         vertical: 'center',
-                        wrapText: C === 3 || C === 5 || C === 6 || C === 7 || C === 8
+                        wrapText: C === 3 || C === 5 || C === 6 || C === 7 || C === 8 || C === 11 || C === 12
                     },
                     border: {
                         top: { style: 'hair', color: { rgb: 'CBD5E1' } },
@@ -424,6 +429,8 @@ export default function FinanzasPage() {
 
             // Re-clasificaciones de etiqueta detectadas en el archivo (servicio -> etiqueta)
             const reclasificaciones = new Map();
+            // Descripciones de proyecto a actualizar (proyecto_id -> descripcion)
+            const descProyectosMap = new Map();
             const registrosAAgregar = [];
 
             for (const row of jsonRows) {
@@ -506,6 +513,12 @@ export default function FinanzasPage() {
                 if (proyectoTexto && proyectoTexto !== '-' && listaProyectos.length > 0) {
                     const proy = listaProyectos.find(p => p.nombre.trim().toLowerCase() === proyectoTexto);
                     if (proy) proyecto_id = proy.id;
+                }
+
+                // DESCRIPCION del proyecto (columna del export) -> actualiza el proyecto si cambió
+                const descProyectoTexto = String(row['Descripción Proyecto'] || row['Descripcion Proyecto'] || '').trim();
+                if (proyecto_id && descProyectoTexto && descProyectoTexto !== '-') {
+                    descProyectosMap.set(proyecto_id, descProyectoTexto);
                 }
 
                 // Servicio Realizado: columna propia (+ detalle). Soporta plantillas antiguas.
@@ -616,7 +629,21 @@ export default function FinanzasPage() {
                     }
                 }
 
-                alert(`¡Éxito! Se importaron ${registrosAAgregar.length} registros correctamente.${degradado ? '\n⚠️ Sin Personal/Proyecto: ejecuta la migración SQL 20260824000000 en Supabase.' : ''}${reclasificados > 0 ? `\n🏷️ ${reclasificados} servicio(s) re-clasificado(s) con la etiqueta del archivo.` : ''}`);
+                // APLICAR DESCRIPCIONES DE PROYECTO actualizadas en el archivo
+                let proyectosActualizados = 0;
+                for (const [pid, desc] of descProyectosMap) {
+                    try {
+                        const { error: errDesc } = await supabase
+                            .from('proyectos')
+                            .update({ descripcion: desc })
+                            .eq('id', pid);
+                        if (!errDesc) proyectosActualizados++;
+                    } catch (errDesc2) {
+                        console.warn('Descripción de proyecto omitida:', errDesc2.message);
+                    }
+                }
+
+                alert(`¡Éxito! Se importaron ${registrosAAgregar.length} registros correctamente.${degradado ? '\n⚠️ Sin Personal/Proyecto: ejecuta la migración SQL 20260824000000 en Supabase.' : ''}${reclasificados > 0 ? `\n🏷️ ${reclasificados} servicio(s) re-clasificado(s) con la etiqueta del archivo.` : ''}${proyectosActualizados > 0 ? `\n📝 ${proyectosActualizados} proyecto(s) con descripción actualizada.` : ''}`);
                 fetchFinanzas();
             }
         } catch (err) {

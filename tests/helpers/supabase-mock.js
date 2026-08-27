@@ -42,8 +42,8 @@ export const MOCK_DATA = {
     { id: 'inv-002', nombre: 'Cloro', cantidad: 30, unidad_medida: 'litros' },
   ],
   proyectos: [
-    { id: 'pro-001', nombre: 'Oficina Maria Garcia', cliente_id: 'cli-001', descripcion: '', activa: true },
-    { id: 'pro-002', nombre: 'Limpieza Anual Carlos', cliente_id: 'cli-002', descripcion: '', activa: true },
+    { id: 'pro-001', nombre: 'Oficina Maria Garcia', cliente_id: 'cli-001', descripcion: 'Limpieza semanal de oficina', activa: true },
+    { id: 'pro-002', nombre: 'Limpieza Anual Carlos', cliente_id: 'cli-002', descripcion: 'Limpieza profunda anual', activa: true },
   ],
   calendario: [
     { id: 'cal-001', fecha: fechaISO(hoy), hora: '09:00:00', tipo: 'Visita', titulo: 'Visita cotización Maria', cliente_id: 'cli-001', servicio_id: 'srv-001', etiqueta_id: 'etq-001', estado: 'Pendiente', notas: 'Confirmar medidas del local', usuario_id: 'test-user-001' },
@@ -186,6 +186,20 @@ export function createSupabaseMockHandler() {
     // Handle table queries
     if (table && MOCK_DATA[table]) {
       let data = applyFilters(MOCK_DATA[table], filters, url);
+
+      // Resolver embeds básicos (clientes/proyectos) para reflejar el comportamiento real
+      if (table === 'finanzas') {
+        data = data.map(row => ({
+          ...row,
+          clientes: row.cliente_id ? (MOCK_DATA.clientes.find(c => c.id === row.cliente_id) || null) : null,
+          proyectos: row.proyecto_id ? (MOCK_DATA.proyectos.find(p => p.id === row.proyecto_id) || null) : null,
+        }));
+      } else if (table === 'proyectos') {
+        data = data.map(row => ({
+          ...row,
+          clientes: row.cliente_id ? (MOCK_DATA.clientes.find(c => c.id === row.cliente_id) || null) : null,
+        }));
+      }
       
       // Handle insert
       if (method === 'POST') {
