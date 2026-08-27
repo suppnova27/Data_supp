@@ -169,6 +169,48 @@ test.describe('Export Excel: vinculacion de Proyecto y columnas nuevas', () => {
   });
 });
 
+test.describe('Formulario: filtrar por etiqueta conserva el servicio', () => {
+  test.beforeEach(async ({ page }) => {
+    const session = mockLoggedInSession();
+    await injectSessionIntoStorage(page, session);
+    resetMockData();
+    await page.route('**/*.supabase.co/**', createSupabaseMockHandler());
+    await page.goto('/');
+    await page.waitForTimeout(5000);
+    await page.click('text=Finanzas');
+    await page.waitForTimeout(2000);
+  });
+
+  test('seleccionar una etiqueta NO borra el servicio ya elegido', async ({ page }) => {
+    const registerBtn = page.locator('button:has-text("Registrar")').first();
+    if (await registerBtn.isVisible()) {
+      await registerBtn.click();
+      await page.waitForTimeout(1500);
+    }
+
+    // 1. Seleccionar servicio "Limpieza de Oficina" (etq Limpieza)
+    const servicioSelect = page.locator('select:has(option[value="Limpieza de Oficina"])').first();
+    if (await servicioSelect.isVisible()) {
+      await servicioSelect.selectOption('Limpieza de Oficina');
+    }
+    expect(await servicioSelect.inputValue()).toBe('Limpieza de Oficina');
+
+    // 2. Filtrar por etiqueta "Mantenimiento" (etq-002) -> el servicio NO debe borrarse
+    const etiquetaSelect = page.locator('select:has(option[value="etq-002"])').first();
+    if (await etiquetaSelect.isVisible()) {
+      await etiquetaSelect.selectOption('etq-002');
+      await page.waitForTimeout(800);
+    }
+
+    expect(await servicioSelect.inputValue()).toBe('Limpieza de Oficina');
+
+    // 3. Volver a "Todas las etiquetas" -> servicio sigue conservado
+    await etiquetaSelect.selectOption('');
+    await page.waitForTimeout(800);
+    expect(await servicioSelect.inputValue()).toBe('Limpieza de Oficina');
+  });
+});
+
 test.describe('Import Excel: columna Etiqueta(s) y re-clasificacion', () => {
   test.beforeEach(async ({ page }) => {
     const session = mockLoggedInSession();

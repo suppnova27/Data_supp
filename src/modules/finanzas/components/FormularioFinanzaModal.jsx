@@ -446,8 +446,9 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
                                 <select 
                                     value={etiquetaSeleccionada} 
                                     onChange={e => {
+                                        // Filtrar por etiqueta NO borra el servicio seleccionado:
+                                        // si queda fuera del filtro se conserva igualmente (ver opción extra abajo)
                                         setEtiquetaSeleccionada(e.target.value);
-                                        setFormData(prev => ({ ...prev, servicio: '' }));
                                     }}
                                     className="border-2 border-slate-100 rounded-xl px-4 py-3 text-sm font-bold bg-white outline-none focus:border-[#0055af]"
                                 >
@@ -469,7 +470,15 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
                                     {catalogoServicios.map(s => (
                                         <option key={s} value={s}>{s}</option>
                                     ))}
+                                    {formData.servicio && !catalogoServicios.includes(formData.servicio) && (
+                                        <option value={formData.servicio}>💾 {formData.servicio} (actual)</option>
+                                    )}
                                 </select>
+                                {formData.servicio && !catalogoServicios.includes(formData.servicio) && (
+                                    <p className="text-[9px] font-bold text-amber-600 leading-snug">
+                                        Servicio guardado que no pertenece a la etiqueta filtrada; se conserva al guardar.
+                                    </p>
+                                )}
                             </div>
                         </div>
 
