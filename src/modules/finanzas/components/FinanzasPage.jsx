@@ -55,8 +55,13 @@ export default function FinanzasPage() {
         // NOTA: los reportes NO usan los datos del registro inicial del cliente
         // (trabajo_realizado / etiqueta). El estado y el servicio se toman de los
         // movimientos de la hoja finanzas (f.servicio, finanza_servicios, proyecto_id).
-        const [resFinanzas, resCuentas, resProyectos, resServicios, resEtiquetas] = await Promise.all([
-            supabase.from('finanzas').select('*, clientes(nombres, apellido_paterno, telefono)').order('fecha_registro', { ascending: false }),
+        let resFinanzas = await supabase.from('finanzas').select('*, clientes(nombres, apellido_paterno, telefono), etiqueta_info:etiqueta_id(nombre, color)').order('fecha_registro', { ascending: false });
+        // Si la BD aún no tiene finanzas.etiqueta_id (migración pendiente), reintentar sin el embed
+        if (resFinanzas.error) {
+            console.warn('Consulta con etiqueta_info falló, reintentando sin ella:', resFinanzas.error.message);
+            resFinanzas = await supabase.from('finanzas').select('*, clientes(nombres, apellido_paterno, telefono)').order('fecha_registro', { ascending: false });
+        }
+        const [resCuentas, resProyectos, resServicios, resEtiquetas] = await Promise.all([
             supabase.from('directorio_cuentas').select('id, alias, titular'),
             supabase.from('proyectos').select('id, nombre, descripcion').then(r => r).catch(() => ({ data: null })),
             supabase.from('servicios').select('id, nombre, etiqueta_id'),
@@ -222,9 +227,12 @@ export default function FinanzasPage() {
         return '-';
     };
 
-    // ETIQUETAS derivadas del servicio del movimiento (histórico vinculado o catálogo)
+    // ETIQUETAS del movimiento: 1) la etiqueta directa guardada en el
+    // movimiento (elegida en el formulario), 2) la del servicio histórico
+    // vinculado, 3) la del catálogo por nombre de servicio.
     const obtenerEtiquetas = (f) => {
         const nombres = new Set();
+        if (f.etiqueta_info?.nombre) nombres.add(f.etiqueta_info.nombre);
         (f.servicios_vinculados || []).forEach(s => {
             if (s.etiqueta_nombre) nombres.add(s.etiqueta_nombre);
         });
@@ -548,6 +556,14 @@ export default function FinanzasPage() {
                     reclasificaciones.set(`${servicio}|||${etiquetaNombre}`, { servicio, etiquetaNombre });
                 }
 
+                // La etiqueta también viaja DENTRO del movimiento (finanzas.etiqueta_id),
+                // así los registros sin servicio igual conservan su etiqueta.
+                let etiqueta_id = null;
+                if (etiquetaNombre && listaEtiquetas.length > 0) {
+                    const etq = listaEtiquetas.find(e => (e.nombre || '').toLowerCase() === etiquetaNombre.toLowerCase());
+                    if (etq) etiqueta_id = etq.id;
+                }
+
                 registrosAAgregar.push({
                     fecha_registro,
                     tipo: tipo === 'Gasto' ? 'Gasto' : 'Ingreso',
@@ -555,6 +571,7 @@ export default function FinanzasPage() {
                     concepto,
                     monto: isNaN(monto) ? 0 : monto,
                     cliente_id,
+                    etiqueta_id,
                     personal_id,
                     proyecto_id,
                     servicio,
@@ -565,7 +582,7 @@ export default function FinanzasPage() {
                 });
             }
 
-            // Inserción con degradación: si la BD aún no tiene personal_id/proyecto_id
+            // Inserción con degradación: si la BD aún no tiene personal_id/proyecto_id/etiqueta_id
             // (migración pendiente), reintenta sin esas columnas.
             let error = null;
             let degradado = false;
@@ -577,6 +594,7 @@ export default function FinanzasPage() {
                     const copia = { ...r };
                     delete copia.personal_id;
                     delete copia.proyecto_id;
+                    delete copia.etiqueta_id;
                     return copia;
                 });
                 const reintento = await supabase.from('finanzas').insert(sinNuevos);
@@ -643,7 +661,7 @@ export default function FinanzasPage() {
                     }
                 }
 
-                alert(`¡Éxito! Se importaron ${registrosAAgregar.length} registros correctamente.${degradado ? '\n⚠️ Sin Personal/Proyecto: ejecuta la migración SQL 20260824000000 en Supabase.' : ''}${reclasificados > 0 ? `\n🏷️ ${reclasificados} servicio(s) re-clasificado(s) con la etiqueta del archivo.` : ''}${proyectosActualizados > 0 ? `\n📝 ${proyectosActualizados} proyecto(s) con descripción actualizada.` : ''}`);
+                alert(`¡Éxito! Se importaron ${registrosAAgregar.length} registros correctamente.${degradado ? '\n⚠️ Sin Personal/Proyecto/Etiqueta: ejecuta en Supabase las migraciones 20260824000000 y 20260830000000.' : ''}${reclasificados > 0 ? `\n🏷️ ${reclasificados} servicio(s) re-clasificado(s) con la etiqueta del archivo.` : ''}${proyectosActualizados > 0 ? `\n📝 ${proyectosActualizados} proyecto(s) con descripción actualizada.` : ''}`);
                 fetchFinanzas();
             }
         } catch (err) {

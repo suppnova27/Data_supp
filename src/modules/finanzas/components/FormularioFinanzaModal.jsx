@@ -96,6 +96,7 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
     const [etiquetas, setEtiquetas] = useState([]);
     const [etiquetaSeleccionada, setEtiquetaSeleccionada] = useState('');
     const [catalogoServicios, setCatalogoServicios] = useState([]);
+    const [servicioEtiquetaMap, setServicioEtiquetaMap] = useState({});
     const [proyectos, setProyectos] = useState([]);
 
     const [formData, setFormData] = useState({
@@ -150,6 +151,26 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
                 setCatalogoServicios(servicios);
                 if (!finanzaEditando && servicios.length > 0) {
                     setFormData(prev => ({ ...prev, servicio: servicios[0] }));
+                }
+            });
+
+            // Mapa servicio (nombre) -> etiqueta_id del catálogo. Sirve para
+            // deducir la etiqueta cuando el usuario solo elige el servicio.
+            supabase.from('servicios').select('nombre, etiqueta_id').then(({ data: lista }) => {
+                const mapa = {};
+                (lista || []).forEach(s => {
+                    if (s.etiqueta_id) mapa[s.nombre] = s.etiqueta_id;
+                });
+                setServicioEtiquetaMap(mapa);
+                // Prefill al editar: etiqueta directa del movimiento o
+                // deducida del servicio guardado (registros legacy)
+                if (finanzaEditando) {
+                    if (finanzaEditando.etiqueta_id) {
+                        setEtiquetaSeleccionada(finanzaEditando.etiqueta_id);
+                    } else if (finanzaEditando.servicio) {
+                        const base = finanzaEditando.servicio.split(' - ')[0].trim();
+                        if (mapa[base]) setEtiquetaSeleccionada(mapa[base]);
+                    }
                 }
             });
 
@@ -216,6 +237,7 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
                     servicio_manual: '', sub_servicio_manual: '', detalle_servicio: '',
                     banco: 'Efectivo', numero_cuenta: '', titular: '', id_operacion: '', cuenta_id: ''
                 });
+                setEtiquetaSeleccionada('');
                 setConsumo({ inventario_id: '', cantidad: 0 });
             }
         }
@@ -267,6 +289,7 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
         const copia = { ...registro };
         delete copia.personal_id;
         delete copia.proyecto_id;
+        delete copia.etiqueta_id;
         return copia;
     };
 
@@ -319,6 +342,7 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
                 concepto: formData.concepto,
                 monto: parseFloat(formData.monto),
                 cliente_id: formData.cliente_id || null,
+                etiqueta_id: etiquetaSeleccionada || null,
                 servicio: servicioFinal,
                 banco: formData.banco,
                 numero_cuenta: formData.numero_cuenta,
@@ -341,7 +365,7 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
                 alert('Error al guardar: ' + (resultado.error.message || 'Error desconocido'));
             } else {
                 if (resultado.degradado) {
-                    alert('El movimiento se guardó, pero SIN personal ni proyecto.\nEjecuta la migración SQL "20260824000000_proyectos_personal_origen.sql" en Supabase para habilitar esos campos.');
+                    alert('El movimiento se guardó, pero SIN personal, proyecto ni etiqueta.\nEjecuta en Supabase las migraciones SQL "20260824000000" y "20260830000000_add_finanzas_etiqueta_id.sql".');
                 }
                 onGuardado();
                 onClose();
@@ -475,7 +499,14 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
                                 <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest pl-1">🛠️ Servicio Realizado</label>
                                 <select
                                     value={formData.servicio}
-                                    onChange={e => setFormData({ ...formData, servicio: e.target.value })}
+                                    onChange={e => {
+                                        const nombreServicio = e.target.value;
+                                        setFormData(prev => ({ ...prev, servicio: nombreServicio }));
+                                        // Si no se eligió etiqueta, se deduce del servicio del catálogo
+                                        if (nombreServicio && servicioEtiquetaMap[nombreServicio]) {
+                                            setEtiquetaSeleccionada(prev => prev || servicioEtiquetaMap[nombreServicio]);
+                                        }
+                                    }}
                                     className="border-2 border-slate-100 rounded-xl px-4 py-3 text-sm font-bold bg-white outline-none focus:border-[#0055af]"
                                 >
                                     <option value="">-- Seleccionar Servicio --</option>
