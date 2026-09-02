@@ -9,48 +9,54 @@ const diaFijo = (dia, anio = hoy.getFullYear(), mes = hoy.getMonth()) => {
   return fechaISO(new Date(anio, mes, dia));
 };
 
-export const MOCK_DATA = {
-  perfiles: [
-    { id: 'test-user-001', email: 'novasolum.info@gmail.com', rol: 'SA', nombre_completo: 'Test User' }
-  ],
-  clientes: [
-    { id: 'cli-001', nombres: 'Maria Garcia', telefono: '79123456', email: 'maria@test.com', origen: 'Facebook', tipo_registro: 'Lead' },
-    { id: 'cli-002', nombres: 'Carlos Lopez', telefono: '79654321', email: 'carlos@test.com', origen: '', tipo_registro: 'Cliente' },
-    { id: 'cli-003', nombres: 'Ana Martinez', telefono: '79111222', email: 'ana@test.com', origen: 'TikTok', tipo_registro: 'Lead' },
-  ],
-  servicios: [
-    { id: 'srv-001', nombre: 'Limpieza de Oficina', etiqueta_id: 'etq-001', activa: true },
-    { id: 'srv-002', nombre: 'Limpieza Residencial', etiqueta_id: 'etq-001', activa: true },
-    { id: 'srv-003', nombre: 'Mantenimiento Industrial', etiqueta_id: 'etq-002', activa: true },
-    { id: 'srv-004', nombre: 'Limpieza de Alfombras', etiqueta_id: 'etq-001', activa: true },
-  ],
-  etiquetas: [
-    { id: 'etq-001', nombre: 'Limpieza', color: '#3b82f6', activa: true },
-    { id: 'etq-002', nombre: 'Mantenimiento', color: '#10b981', activa: true },
-  ],
-  finanzas: [
-    { id: 'fin-001', fecha_registro: '2026-07-20', tipo: 'Ingreso', categoria: 'Servicios', concepto: 'Pago cliente Maria', monto: 1500, cliente_id: 'cli-001', servicio: 'Limpieza de Oficina', banco: 'Efectivo', numero_cuenta: '', titular: '', id_operacion: '', cuenta_id: '', personal_id: null, proyecto_id: 'pro-001' },
-    { id: 'fin-002', fecha_registro: '2026-07-22', tipo: 'Gasto', categoria: 'Insumos', concepto: 'Compra de productos de limpieza', monto: 350, cliente_id: null, servicio: '', banco: 'BCA', numero_cuenta: '1234567', titular: 'ORE', id_operacion: 'TX-001', cuenta_id: 'cta-001', personal_id: null, proyecto_id: null },
-  ],
-  finanza_servicios: [],
-  directorio_cuentas: [
-    { id: 'cta-001', alias: 'Cuenta Principal', banco: 'BCA', numero_cuenta: '1234567', titular: 'ORE', tipo: 'Propia' },
-    { id: 'cta-002', alias: 'Cuenta Personal', banco: 'BIB', numero_cuenta: '9876543', titular: 'Juan Perez', tipo: 'Personal' },
-  ],
-  inventario: [
-    { id: 'inv-001', nombre: 'Detergente Industrial', cantidad: 50, unidad_medida: 'litros' },
-    { id: 'inv-002', nombre: 'Cloro', cantidad: 30, unidad_medida: 'litros' },
-  ],
-  proyectos: [
-    { id: 'pro-001', nombre: 'Oficina Maria Garcia', cliente_id: 'cli-001', descripcion: 'Limpieza semanal de oficina', activa: true },
-    { id: 'pro-002', nombre: 'Limpieza Anual Carlos', cliente_id: 'cli-002', descripcion: 'Limpieza profunda anual', activa: true },
-  ],
-  calendario: [
-    { id: 'cal-001', fecha: fechaISO(hoy), hora: '09:00:00', tipo: 'Visita', titulo: 'Visita cotización Maria', cliente_id: 'cli-001', servicio_id: 'srv-001', etiqueta_id: 'etq-001', estado: 'Pendiente', notas: 'Confirmar medidas del local', usuario_id: 'test-user-001' },
-    { id: 'cal-002', fecha: diaFijo(15), hora: '14:30:00', tipo: 'Proyecto', titulo: 'Limpieza oficina Carlos', cliente_id: 'cli-002', servicio_id: 'srv-002', etiqueta_id: 'etq-002', estado: 'En curso', notas: '', usuario_id: 'test-user-001' },
-    { id: 'cal-003', fecha: diaFijo(1), hora: '10:00:00', tipo: 'Cita', titulo: 'Llamada seguimiento Ana', cliente_id: 'cli-003', servicio_id: null, etiqueta_id: 'etq-001', estado: 'Completado', notas: 'Cliente interesado en contrato mensual', usuario_id: 'test-user-001' },
-  ],
-};
+// Datos base en una fábrica: cada reset genera objetos NUEVOS para que los
+// tests no se contaminen entre sí (mismo proceso/worker comparte el módulo).
+function defaultMockData() {
+  return {
+    perfiles: [
+      { id: 'test-user-001', email: 'novasolum.info@gmail.com', rol: 'SA', nombre_completo: 'Test User' }
+    ],
+    clientes: [
+      { id: 'cli-001', nombres: 'Maria Garcia', telefono: '79123456', email: 'maria@test.com', origen: 'Facebook', tipo_registro: 'Lead', trabajo_realizado: 'Limpieza de Oficina', etiqueta: 'Corporativo' },
+      { id: 'cli-002', nombres: 'Carlos Lopez', telefono: '79654321', email: 'carlos@test.com', origen: '', tipo_registro: 'Cliente', trabajo_realizado: 'Limpieza Residencial', etiqueta: 'General' },
+      { id: 'cli-003', nombres: 'Ana Martinez', telefono: '79111222', email: 'ana@test.com', origen: 'TikTok', tipo_registro: 'Lead', trabajo_realizado: 'Limpieza Residencial', etiqueta: 'General' },
+    ],
+    servicios: [
+      { id: 'srv-001', nombre: 'Limpieza de Oficina', etiqueta_id: 'etq-001', activa: true },
+      { id: 'srv-002', nombre: 'Limpieza Residencial', etiqueta_id: 'etq-001', activa: true },
+      { id: 'srv-003', nombre: 'Mantenimiento Industrial', etiqueta_id: 'etq-002', activa: true },
+      { id: 'srv-004', nombre: 'Limpieza de Alfombras', etiqueta_id: 'etq-001', activa: true },
+    ],
+    etiquetas: [
+      { id: 'etq-001', nombre: 'Limpieza', color: '#3b82f6', activa: true },
+      { id: 'etq-002', nombre: 'Mantenimiento', color: '#10b981', activa: true },
+    ],
+    finanzas: [
+      { id: 'fin-001', fecha_registro: '2026-07-20', tipo: 'Ingreso', categoria: 'Servicios', concepto: 'Pago cliente Maria', monto: 1500, cliente_id: 'cli-001', servicio: 'Limpieza de Oficina', banco: 'Efectivo', numero_cuenta: '', titular: '', id_operacion: '', cuenta_id: '', personal_id: null, proyecto_id: 'pro-001', etiqueta_id: 'etq-001' },
+      { id: 'fin-002', fecha_registro: '2026-07-22', tipo: 'Gasto', categoria: 'Insumos', concepto: 'Compra de productos de limpieza', monto: 350, cliente_id: null, servicio: '', banco: 'BCA', numero_cuenta: '1234567', titular: 'ORE', id_operacion: 'TX-001', cuenta_id: 'cta-001', personal_id: null, proyecto_id: null, etiqueta_id: null },
+    ],
+    finanza_servicios: [],
+    directorio_cuentas: [
+      { id: 'cta-001', alias: 'Cuenta Principal', banco: 'BCA', numero_cuenta: '1234567', titular: 'ORE', tipo: 'Propia' },
+      { id: 'cta-002', alias: 'Cuenta Personal', banco: 'BIB', numero_cuenta: '9876543', titular: 'Juan Perez', tipo: 'Personal' },
+    ],
+    inventario: [
+      { id: 'inv-001', nombre: 'Detergente Industrial', cantidad: 50, unidad_medida: 'litros' },
+      { id: 'inv-002', nombre: 'Cloro', cantidad: 30, unidad_medida: 'litros' },
+    ],
+    proyectos: [
+      { id: 'pro-001', nombre: 'Oficina Maria Garcia', cliente_id: 'cli-001', descripcion: 'Limpieza semanal de oficina', activa: true },
+      { id: 'pro-002', nombre: 'Limpieza Anual Carlos', cliente_id: 'cli-002', descripcion: 'Limpieza profunda anual', activa: true },
+    ],
+    calendario: [
+      { id: 'cal-001', fecha: fechaISO(hoy), hora: '09:00:00', tipo: 'Visita', titulo: 'Visita cotización Maria', cliente_id: 'cli-001', servicio_id: 'srv-001', etiqueta_id: 'etq-001', estado: 'Pendiente', notas: 'Confirmar medidas del local', usuario_id: 'test-user-001' },
+      { id: 'cal-002', fecha: diaFijo(15), hora: '14:30:00', tipo: 'Proyecto', titulo: 'Limpieza oficina Carlos', cliente_id: 'cli-002', servicio_id: 'srv-002', etiqueta_id: 'etq-002', estado: 'En curso', notas: '', usuario_id: 'test-user-001' },
+      { id: 'cal-003', fecha: diaFijo(1), hora: '10:00:00', tipo: 'Cita', titulo: 'Llamada seguimiento Ana', cliente_id: 'cli-003', servicio_id: null, etiqueta_id: 'etq-001', estado: 'Completado', notas: 'Cliente interesado en contrato mensual', usuario_id: 'test-user-001' },
+    ],
+  };
+}
+
+export const MOCK_DATA = defaultMockData();
 
 // Mock auth state
 let mockSession = null;
@@ -187,12 +193,13 @@ export function createSupabaseMockHandler() {
     if (table && MOCK_DATA[table]) {
       let data = applyFilters(MOCK_DATA[table], filters, url);
 
-      // Resolver embeds básicos (clientes/proyectos) para reflejar el comportamiento real
+      // Resolver embeds básicos (clientes/proyectos/etiquetas) para reflejar el comportamiento real
       if (table === 'finanzas') {
         data = data.map(row => ({
           ...row,
           clientes: row.cliente_id ? (MOCK_DATA.clientes.find(c => c.id === row.cliente_id) || null) : null,
           proyectos: row.proyecto_id ? (MOCK_DATA.proyectos.find(p => p.id === row.proyecto_id) || null) : null,
+          etiqueta_info: row.etiqueta_id ? (MOCK_DATA.etiquetas.find(e => e.id === row.etiqueta_id) || null) : null,
         }));
       } else if (table === 'proyectos') {
         data = data.map(row => ({
@@ -331,16 +338,11 @@ export async function injectSessionIntoStorage(page, session) {
   }, { key: storageKey, sess: session });
 }
 
-// Helper to reset all mock data to defaults
+// Helper to reset all mock data to defaults (REEMPLAZA todas las tablas,
+// incluidas servicios/etiquetas/clientes que otros tests pueden mutar)
 export function resetMockData() {
-  MOCK_DATA.finanzas = [
-    { id: 'fin-001', fecha_registro: '2026-07-20', tipo: 'Ingreso', categoria: 'Servicios', concepto: 'Pago cliente Maria', monto: 1500, cliente_id: 'cli-001', servicio: 'Limpieza de Oficina', banco: 'Efectivo', numero_cuenta: '', titular: '', id_operacion: '', cuenta_id: '', personal_id: null, proyecto_id: 'pro-001' },
-    { id: 'fin-002', fecha_registro: '2026-07-22', tipo: 'Gasto', categoria: 'Insumos', concepto: 'Compra de productos de limpieza', monto: 350, cliente_id: null, servicio: '', banco: 'BCA', numero_cuenta: '1234567', titular: 'ORE', id_operacion: 'TX-001', cuenta_id: 'cta-001', personal_id: null, proyecto_id: null },
-  ];
-  MOCK_DATA.finanza_servicios = [];
-  MOCK_DATA.calendario = [
-    { id: 'cal-001', fecha: fechaISO(hoy), hora: '09:00:00', tipo: 'Visita', titulo: 'Visita cotización Maria', cliente_id: 'cli-001', servicio_id: 'srv-001', etiqueta_id: 'etq-001', estado: 'Pendiente', notas: 'Confirmar medidas del local', usuario_id: 'test-user-001' },
-    { id: 'cal-002', fecha: diaFijo(15), hora: '14:30:00', tipo: 'Proyecto', titulo: 'Limpieza oficina Carlos', cliente_id: 'cli-002', servicio_id: 'srv-002', etiqueta_id: 'etq-002', estado: 'En curso', notas: '', usuario_id: 'test-user-001' },
-    { id: 'cal-003', fecha: diaFijo(1), hora: '10:00:00', tipo: 'Cita', titulo: 'Llamada seguimiento Ana', cliente_id: 'cli-003', servicio_id: null, etiqueta_id: 'etq-001', estado: 'Completado', notas: 'Cliente interesado en contrato mensual', usuario_id: 'test-user-001' },
-  ];
+  const fresh = defaultMockData();
+  for (const key of Object.keys(fresh)) {
+    MOCK_DATA[key] = fresh[key];
+  }
 }

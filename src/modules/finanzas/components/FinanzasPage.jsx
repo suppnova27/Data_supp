@@ -52,14 +52,17 @@ export default function FinanzasPage() {
     const fetchFinanzas = async () => {
         setCargando(true);
 
-        // NOTA: los reportes NO usan los datos del registro inicial del cliente
-        // (trabajo_realizado / etiqueta). El estado y el servicio se toman de los
-        // movimientos de la hoja finanzas (f.servicio, finanza_servicios, proyecto_id).
-        let resFinanzas = await supabase.from('finanzas').select('*, clientes(nombres, apellido_paterno, telefono), etiqueta_info:etiqueta_id(nombre, color)').order('fecha_registro', { ascending: false });
+        // El servicio y la etiqueta se toman PREFERENTEMENTE del movimiento
+        // (f.servicio / f.etiqueta_id / finanza_servicios). Cuando el movimiento
+        // no los trae (registros creados sin seleccionar servicio/etiqueta), se
+        // usa como RESPALDO el trabajo_realizado y la etiqueta del cliente
+        // vinculado al movimiento (clientes.trabajo_realizado / clientes.etiqueta).
+        const CLIENTE_CAMPOS = 'nombres, apellido_paterno, telefono, trabajo_realizado, etiqueta';
+        let resFinanzas = await supabase.from('finanzas').select(`*, clientes(${CLIENTE_CAMPOS}), etiqueta_info:etiqueta_id(nombre, color)`).order('fecha_registro', { ascending: false });
         // Si la BD aún no tiene finanzas.etiqueta_id (migración pendiente), reintentar sin el embed
         if (resFinanzas.error) {
             console.warn('Consulta con etiqueta_info falló, reintentando sin ella:', resFinanzas.error.message);
-            resFinanzas = await supabase.from('finanzas').select('*, clientes(nombres, apellido_paterno, telefono)').order('fecha_registro', { ascending: false });
+            resFinanzas = await supabase.from('finanzas').select(`*, clientes(${CLIENTE_CAMPOS})`).order('fecha_registro', { ascending: false });
         }
         const [resCuentas, resProyectos, resServicios, resEtiquetas] = await Promise.all([
             supabase.from('directorio_cuentas').select('id, alias, titular'),
@@ -209,27 +212,39 @@ export default function FinanzasPage() {
         return '-';
     };
 
-    // SERVICIO REALIZADO y su detalle: tomados SOLO del movimiento (finanzas),
-    // nunca del registro inicial del cliente.
+    // SERVICIO REALIZADO y su detalle: prioridad al movimiento (finanzas),
+    // respaldo al cliente vinculado (trabajo_realizado) para registros que se
+    // guardaron sin servicio.
     const obtenerServicioRealizado = (f) => {
         const { servicio } = parsearServicio(f.servicio);
-        if (!servicio || servicio === '-') {
-            const vinculados = obtenerServiciosVinculados(f);
-            if (vinculados.length === 1) return vinculados[0];
-            return '-';
+        if (servicio && servicio !== '-') return servicio;
+        const vinculados = obtenerServiciosVinculados(f);
+        if (vinculados.length === 1) return vinculados[0];
+        // Respaldo: el servicio del cliente vinculado al movimiento
+        const delCliente = (f.clientes?.trabajo_realizado || '').trim();
+        if (delCliente && delCliente !== '-' && delCliente !== 'Por definir') {
+            return parsearServicio(delCliente).servicio;
         }
-        return servicio;
+        return '-';
     };
 
     const obtenerDetalleServicio = (f) => {
         const { servicio, detalle } = parsearServicio(f.servicio);
         if (servicio && servicio !== '-' && detalle && detalle !== '-') return detalle;
+        // Respaldo: detalle del trabajo_realizado del cliente
+        const delCliente = (f.clientes?.trabajo_realizado || '').trim();
+        if (delCliente && delCliente !== '-' && delCliente !== 'Por definir') {
+            const { detalle: detalleCli } = parsearServicio(delCliente);
+            if (detalleCli && detalleCli !== '-') return detalleCli;
+        }
         return '-';
     };
 
     // ETIQUETAS del movimiento: 1) la etiqueta directa guardada en el
     // movimiento (elegida en el formulario), 2) la del servicio histórico
-    // vinculado, 3) la del catálogo por nombre de servicio.
+    // vinculado, 3) la del catálogo por nombre de servicio, 4) como respaldo,
+    // la etiqueta del cliente vinculado (clientes.etiqueta) para registros
+    // creados sin etiqueta.
     const obtenerEtiquetas = (f) => {
         const nombres = new Set();
         if (f.etiqueta_info?.nombre) nombres.add(f.etiqueta_info.nombre);
@@ -239,6 +254,10 @@ export default function FinanzasPage() {
         if (nombres.size === 0) {
             const { servicio } = parsearServicio(f.servicio);
             if (servicio && catalogoServicioEtiqueta[servicio]) nombres.add(catalogoServicioEtiqueta[servicio]);
+        }
+        if (nombres.size === 0) {
+            const etiquetaCliente = (f.clientes?.etiqueta || '').trim();
+            if (etiquetaCliente && etiquetaCliente !== '-') nombres.add(etiquetaCliente);
         }
         return nombres.size > 0 ? Array.from(nombres).join(', ') : '-';
     };

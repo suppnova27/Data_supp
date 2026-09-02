@@ -364,6 +364,29 @@ export default function FormularioFinanzaModal({ isOpen, onClose, onGuardado, fi
             if (resultado.error) {
                 alert('Error al guardar: ' + (resultado.error.message || 'Error desconocido'));
             } else {
+                // DESCUENTO DE STOCK: el consumo de inventario declarado en el
+                // formulario (solo registros nuevos) se descuenta del stock actual.
+                const cantidadConsumida = Number(consumo.cantidad) || 0;
+                if (!finanzaEditando && consumo.inventario_id && cantidadConsumida > 0) {
+                    try {
+                        const { data: prod, error: errLectura } = await supabase
+                            .from('inventario')
+                            .select('cantidad, nombre')
+                            .eq('id', consumo.inventario_id)
+                            .maybeSingle();
+                        if (errLectura) throw errLectura;
+                        if (prod) {
+                            const nuevoStock = Math.max(0, Number(prod.cantidad) - cantidadConsumida);
+                            const { error: errStock } = await supabase
+                                .from('inventario')
+                                .update({ cantidad: nuevoStock })
+                                .eq('id', consumo.inventario_id);
+                            if (errStock) throw errStock;
+                        }
+                    } catch (errInv) {
+                        alert('⚠️ El movimiento se guardó, pero NO se pudo descontar el stock de inventario: ' + (errInv.message || errInv));
+                    }
+                }
                 if (resultado.degradado) {
                     alert('El movimiento se guardó, pero SIN personal, proyecto ni etiqueta.\nEjecuta en Supabase las migraciones SQL "20260824000000" y "20260830000000_add_finanzas_etiqueta_id.sql".');
                 }

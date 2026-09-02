@@ -73,4 +73,35 @@ test.describe('Calendario Module', () => {
 
     await expect(page.locator('text=Visita cotización Maria')).toHaveCount(0);
   });
+
+  test('should navigate months ACROSS the year boundary without breaking (bug: mes -1/12)', async ({ page }) => {
+    const errores = [];
+    page.on('pageerror', e => errores.push(e.message));
+
+    const hoy = new Date();
+    const anioActual = hoy.getFullYear();
+    const mesActual = hoy.getMonth(); // 0-11
+
+    // Retroceder hasta enero del año actual: (mesActual) clicks
+    for (let i = 0; i < mesActual; i++) {
+      await page.locator('button:has-text("‹")').first().click();
+      await page.waitForTimeout(300);
+    }
+    await expect(page.locator('h2:has-text("enero")')).toHaveCount(1);
+
+    // Un click más: debe caer en DICIEMBRE del año ANTERIOR (no en un mes vacío inválido)
+    await page.locator('button:has-text("‹")').first().click();
+    await page.waitForTimeout(800);
+
+    const headerDiciembre = page.locator('h2', { hasText: 'diciembre' });
+    await expect(headerDiciembre).toHaveCount(1);
+    await expect(headerDiciembre).toContainText(String(anioActual - 1));
+
+    // Y avanzar de vuelta: diciembre -> enero del año actual
+    await page.locator('button:has-text("›")').first().click();
+    await page.waitForTimeout(800);
+    await expect(page.locator('h2:has-text("enero")')).toHaveCount(1);
+
+    expect(errores).toEqual([]);
+  });
 });

@@ -97,9 +97,28 @@ export default function DashboardPage() {
         });
 
         const serviciosMap = {};
-        datos.servicios.forEach(s => { serviciosMap[s.id] = s.etiqueta_id; });
+        const servicioEtiquetaMap = {}; // nombre de servicio -> etiqueta_id
+        datos.servicios.forEach(s => {
+            serviciosMap[s.id] = s.etiqueta_id;
+            if (s.etiqueta_id) servicioEtiquetaMap[s.nombre] = s.etiqueta_id;
+        });
         const etiquetasMap = {};
         datos.etiquetas.forEach(e => { etiquetasMap[e.id] = e.nombre; });
+
+        // Deducir etiqueta de un movimiento SIN servicios vinculados:
+        // 1) etiqueta directa del movimiento (finanzas.etiqueta_id)
+        // 2) nombre completo del servicio en el catálogo
+        // 3) base del nombre ("Servicio - Detalle") sin prefijo decorativo (emoji)
+        const etiquetaDeMovimiento = (f) => {
+            if (f.etiqueta_id) return f.etiqueta_id;
+            if (!f.servicio) return null;
+            const limpio = String(f.servicio).trim();
+            if (servicioEtiquetaMap[limpio]) return servicioEtiquetaMap[limpio];
+            const base = limpio.split(' - ')[0].trim();
+            if (servicioEtiquetaMap[base]) return servicioEtiquetaMap[base];
+            const sinPrefijo = base.replace(/^[^\p{L}\p{N}]+/u, '').trim();
+            return servicioEtiquetaMap[sinPrefijo] || null;
+        };
 
         datos.finanzas.filter(f => f.tipo === 'Ingreso').forEach(f => {
             const serviciosVinculados = fsMap[f.id] || [];
@@ -110,8 +129,8 @@ export default function DashboardPage() {
                     const etiquetaNombre = etiquetaId ? (etiquetasMap[etiquetaId] || 'Sin Etiqueta') : 'Sin Etiqueta';
                     mapa[etiquetaNombre] = (mapa[etiquetaNombre] || 0) + montoPorServicio;
                 });
-            } else if (f.servicio) {
-                const etiquetaId = serviciosMap[f.servicio];
+            } else {
+                const etiquetaId = etiquetaDeMovimiento(f);
                 const etiquetaNombre = etiquetaId ? (etiquetasMap[etiquetaId] || 'Sin Etiqueta') : 'Sin Etiqueta';
                 mapa[etiquetaNombre] = (mapa[etiquetaNombre] || 0) + Number(f.monto);
             }

@@ -116,8 +116,14 @@ export default function CuentasPage() {
 
     const handleSubmit = async (e) => {
         e.preventDefault();
+        // Payload EXPLICITO: al editar no se deben reenviar campos calculados
+        // (saldo_actual, entrante, saliente, neto) ni el id -> PostgREST los rechaza.
         const datosAEnviar = {
-            ...formData,
+            alias: formData.alias,
+            titular: formData.titular,
+            banco: formData.banco,
+            numero_cuenta: formData.numero_cuenta,
+            tipo: formData.tipo,
             saldo_inicial: parseFloat(formData.saldo_inicial) || 0
         };
 
@@ -126,12 +132,14 @@ export default function CuentasPage() {
             : supabase.from('directorio_cuentas').insert([datosAEnviar]);
 
         const { error } = await accion;
-        if (!error) {
-            setModalAbierto(false);
-            setFormData(valoresPorDefecto);
-            setEditandoId(null);
-            fetchCuentas();
+        if (error) {
+            alert('Error al guardar la cuenta: ' + error.message);
+            return;
         }
+        setModalAbierto(false);
+        setFormData(valoresPorDefecto);
+        setEditandoId(null);
+        fetchCuentas();
     };
 
     const eliminarCuenta = async (id) => {

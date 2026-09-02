@@ -65,6 +65,7 @@ test.describe('FLUJO COMPLETO: registrar -> exportar -> importar (round-trip)', 
     expect(fila).toBeTruthy();
     expect(fila['Cliente']).toContain('Maria Garcia');
     expect(fila['Personal']).toBe('Juan Perez');
+    expect(fila['Etiqueta(s)']).toBe('Limpieza'); // etiqueta deducida del servicio y guardada en el movimiento
     expect(fila['Servicio Realizado']).toBe('Limpieza de Oficina');
     expect(fila['Detalle Servicio']).toBe('Con productos');
     expect(fila['Proyecto']).toBe('Oficina Maria Garcia');
@@ -86,6 +87,7 @@ test.describe('FLUJO COMPLETO: registrar -> exportar -> importar (round-trip)', 
     expect(importado.cliente_id).toBe('cli-001');
     expect(importado.personal_id).toBe('cta-002');
     expect(importado.proyecto_id).toBe('pro-001');
+    expect(importado.etiqueta_id).toBe('etq-001'); // la etiqueta viaja DENTRO del movimiento
     expect(importado.servicio).toContain('Con productos');
     expect(Number(importado.monto)).toBe(300);
 
@@ -148,5 +150,72 @@ test.describe('FLUJO COMPLETO: registrar -> exportar -> importar (round-trip)', 
     const conceptos = filas.map(f => String(f['Detalle / Concepto']));
     expect(conceptos).toContain('Pago cliente Maria');   // fin-001 (julio)
     expect(conceptos).toContain('Compra de productos de limpieza'); // fin-002 (julio)
+  });
+
+  test('5) registrar gasto con consumo de inventario DESCUENTA el stock', async ({ page }) => {
+    const stockAntes = MOCK_DATA.inventario.find(p => p.id === 'inv-001').cantidad; // 50
+
+    await page.click('button:has-text("Registrar")');
+    await page.waitForTimeout(1500);
+
+    // Tipo Gasto (default) + cuenta requerida
+    await page.locator('select:has(option[value="cta-001"])').first().selectOption('cta-001');
+
+    // Declarar consumo de inventario: Detergente Industrial x 12
+    await page.locator('select:has(option[value="inv-001"])').first().selectOption('inv-001');
+    await page.locator('input[placeholder="Cant."]').first().fill('12');
+
+    await page.locator('input[type="number"]').first().fill('80');
+    await page.fill('input[placeholder*="Concepto"]', 'TEST CONSUMO INSUMOS');
+    await page.click('button[type="submit"]:has-text("Confirmar")');
+    await page.waitForTimeout(2500);
+
+    // El gasto quedó registrado
+    const gasto = MOCK_DATA.finanzas.find(f => f.concepto === 'TEST CONSUMO INSUMOS');
+    expect(gasto).toBeTruthy();
+    expect(gasto.tipo).toBe('Gasto');
+
+    // El stock se descontó (50 - 12 = 38)
+    const stockDespues = MOCK_DATA.inventario.find(p => p.id === 'inv-001').cantidad;
+    expect(stockDespues).toBe(stockAntes - 12);
+  });
+
+  test('6) export deriva Servicio y Etiqueta desde el CLIENTE cuando el movimiento va vacio', async ({ page }) => {
+    // Crear un movimiento de agosto SIN servicio ni etiqueta, vinculado a un
+    // cliente que SÍ tiene trabajo_realizado y etiqueta (cliente Maria Garcia).
+    MOCK_DATA.finanzas.unshift({
+      id: 'fin-fallback-1',
+      fecha_registro: '2026-08-10',
+      tipo: 'Ingreso',
+      categoria: 'Servicios',
+      concepto: 'TEST FALLBACK CLIENTE',
+      monto: 500,
+      cliente_id: 'cli-001', // trabajo_realizado='Limpieza de Oficina', etiqueta='Corporativo'
+      servicio: '',
+      etiqueta_id: null,
+      banco: 'Efectivo',
+      numero_cuenta: '', titular: '', id_operacion: '', cuenta_id: '',       personal_id: null, proyecto_id: null,
+    });
+
+    // Recargar la página para que el fetch de Finanzas incluya el nuevo registro
+    await page.reload();
+    await page.waitForTimeout(5000);
+    await page.click('text=Finanzas');
+    await page.waitForTimeout(2000);
+
+    // Cambiar filtro a Año para incluir el registro de agosto
+    await page.locator('select').filter({ hasText: 'Por Mes' }).selectOption('Año');
+    await page.waitForTimeout(500);
+
+    const dlPromise = page.waitForEvent('download');
+    await page.click('button:has-text("Exportar Excel")');
+    const dl = await dlPromise;
+    const filas = leerWorkbook(await dl.path());
+
+    const fila = filas.find(r => String(r['Detalle / Concepto']).includes('TEST FALLBACK CLIENTE'));
+    expect(fila).toBeTruthy();
+    // El movimiento va vacío, pero el export digna el servicio y la etiqueta del cliente vinculado
+    expect(fila['Servicio Realizado']).toBe('Limpieza de Oficina');
+    expect(fila['Etiqueta(s)']).toBe('Corporativo');
   });
 });

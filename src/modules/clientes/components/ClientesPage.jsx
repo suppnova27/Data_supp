@@ -208,8 +208,9 @@ export default function ClientesPage() {
     };
 
     const clientesFiltrados = useMemo(() => {
+        const q = busqueda.toLowerCase();
         return clientes.filter(c => {
-            const cumpleBusqueda = c.nombres.toLowerCase().includes(busqueda.toLowerCase()) || c.telefono.includes(busqueda);
+            const cumpleBusqueda = (c.nombres || '').toLowerCase().includes(q) || String(c.telefono || '').includes(busqueda);
             const cumpleServicio = filtroServicio === 'Todos' || c.trabajo_realizado === filtroServicio;
             const cumpleEtiqueta = filtroEtiqueta === 'Todos' || c.etiqueta === filtroEtiqueta;
             return cumpleBusqueda && cumpleServicio && cumpleEtiqueta;

@@ -89,6 +89,14 @@ export default function CalendarioPage() {
 
     const celdas = useMemo(() => construirCeldasMes(anio, mes), [anio, mes]);
 
+    // Navegación de mes NORMALIZADA: cruzar enero->diciembre (o viceversa)
+    // ajusta el año automáticamente (JS normaliza meses fuera de 0-11)
+    const cambiarMes = (delta) => {
+        const nuevo = new Date(anio, mes + delta, 1);
+        setAnio(nuevo.getFullYear());
+        setMes(nuevo.getMonth());
+    };
+
     const eventosPorDia = (dia) => {
         const iso = obtenerFechaISO(dia);
         return eventos.filter(e => e.fecha === iso);
@@ -202,9 +210,9 @@ export default function CalendarioPage() {
             <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
                 <div className="p-4 md:p-6 border-b border-slate-100 flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                        <button onClick={() => setMes(mes - 1)} className="w-9 h-9 rounded-full bg-slate-100 text-slate-600 hover:bg-[#0055af] hover:text-white font-black transition-colors">‹</button>
+                        <button onClick={() => cambiarMes(-1)} className="w-9 h-9 rounded-full bg-slate-100 text-slate-600 hover:bg-[#0055af] hover:text-white font-black transition-colors">‹</button>
                         <h2 className="text-lg font-black text-slate-800 capitalize">{nombreMes}</h2>
-                        <button onClick={() => setMes(mes + 1)} className="w-9 h-9 rounded-full bg-slate-100 text-slate-600 hover:bg-[#0055af] hover:text-white font-black transition-colors">›</button>
+                        <button onClick={() => cambiarMes(1)} className="w-9 h-9 rounded-full bg-slate-100 text-slate-600 hover:bg-[#0055af] hover:text-white font-black transition-colors">›</button>
                     </div>
                     <span className="text-[11px] font-bold text-slate-400 bg-slate-50 px-3 py-1.5 rounded-full border border-slate-100">
                         {cargando ? 'Cargando...' : `${eventos.length} evento(s) este mes`}
